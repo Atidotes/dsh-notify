@@ -650,6 +650,47 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
 // 清理用例产生的临时目录
 rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
 
+// --- 13. Windows 右上角横幅模式（系统 Toast 位置改不了）----------------------
+{
+  captured.length = 0
+  const bench = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-17': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    apply(bench.ctx, {
+      remindEveryMs: 0,
+      windowsStyle: 'banner',
+      bannerPosition: 'topright',
+      bannerDurationMs: 6000,
+    })
+  })
+  await bench.call('approval/request', { agent: { id: 'session-17' }, toolName: 'bash' })
+  await settle()
+  const ps = captured.find((argv) => String(argv[0]).includes('powershell'))
+  const script = ps?.find((part) => String(part).includes('ShowDialog')) ?? ''
+  const checks = [
+    ['TopMost', '置顶'],
+    ['WorkingArea', '按屏幕工作区定位'],
+    ['$wa.Right - $form.Width', '右上角（右缘对齐）'],
+    ['$wa.Top +', '右上角（上缘对齐）'],
+    ['deepseek.png', '横幅里带官方图标'],
+    ['Interval = 6000', '自动关闭时长可配'],
+    ['Start-Process', '点击横幅打开 DSH'],
+  ]
+  const missing = checks.filter(([needle]) => !script.includes(needle))
+  if (ps !== undefined && missing.length === 0) {
+    ok('Windows banner 模式：自绘右上角置顶横幅（位置 / 图标 / 时长 / 点击跳转齐全）')
+  } else {
+    bad(`banner 脚本缺少：${missing.map(([, label]) => label).join('、')}｜${JSON.stringify(ps?.slice(0, 2))}`)
+  }
+  if (script.includes('ToastNotificationManager')) {
+    bad('banner 模式不应再走系统 Toast')
+  } else {
+    ok('banner 模式不再走系统 Toast（位置才可控）')
+  }
+}
+
 console.log('')
 if (failures.length > 0) {
   console.log(`${failures.length} 项失败`)

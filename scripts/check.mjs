@@ -92,6 +92,8 @@ for (const [needle, label] of [
   ['notify-send', 'Linux：notify-send 后端'],
   ['SnoreToast', 'Windows：SnoreToast 后端'],
   ['ToastNotificationManager', 'Windows：PowerShell WinRT Toast 兜底'],
+  ['ShowDialog', 'Windows：自绘横幅模式（位置可控，可贴右上角）'],
+  ['bannerPosition', '横幅位置可配（topright/topleft/…）'],
   ['node:fs/promises', '文件读写走 node:fs（不再依赖 /bin/sh、/bin/cat）'],
 ]) {
   if (hostSource.includes(needle)) ok(label)

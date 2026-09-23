@@ -26,7 +26,8 @@ npm run preview    # 把三种通知的实际文案原样打出来
 |---|---|---|---|
 | 三种触发 / feed / SSE / 诊断路由 | ✅ | ✅ | ✅ |
 | 系统通知（host 直发） | ✅ 自编译 Swift app | ✅ SnoreToast / PowerShell Toast | ✅ notify-send |
-| 官方彩色图标 | ✅ app 图标位 | ✅ 见下（两条后端落点不同） | ✅ `notify-send -i` = 图标位 |
+| 官方彩色图标 | ✅ app 图标位 | ✅ 见下（三条后端落点不同） | ✅ `notify-send -i` = 图标位 |
+| 通知位置 | 系统决定（右上角） | ⚠️ 系统 Toast 固定在右下角；`banner` 模式可自定 | 系统决定 |
 | 浏览器兜底通知 | ✅ | ✅ | ✅ |
 | 页面内卡片 | 已按需求移除 | — | — |
 | 通知点击跳转 | 需 `terminal-notifier` | ❌ | ❌ |
@@ -38,6 +39,7 @@ npm run preview    # 把三种通知的实际文案原样打出来
 | macOS | 自建 Swift app 的 **app bundle 图标** | 通知左侧图标位（你截图里的位置） |
 | Windows + PowerShell | Toast XML 的 **`appLogoOverride`** | 通知左侧图标位 —— 与 macOS 对齐 |
 | Windows + SnoreToast | `-p <png>` | 通知**内部**的图片区（位置随模板/版本略有差异） |
+| Windows + `banner` 模式 | 自绘窗口里的 `PictureBox` | 横幅左侧，64×64（**位置/尺寸完全可控**） |
 | Linux | `notify-send -i <png 绝对路径>` | 通知图标位（GNOME / KDE / dunst 都是这个槽） |
 
 Windows 的 toast 图片有平台限制：**≤ 1024×1024、≤ 200 KB、必须是本地 `file://` URI** ——
@@ -58,9 +60,30 @@ sudo pacman -S libnotify           # Arch
 通知参数：`-a "DeepSeek Harness"`、`-i <包内官方彩色图标绝对路径>`、
 审批/提问用 `-u critical`（桌面环境通常不会自动收起），完成用默认级别。
 
-### Windows
+### Windows 的通知位置（系统 Toast 改不了）
 
-按优先级自动挑，无需配置：
+Windows 的通知位置由系统固定在**右下角**，微软明确表示没有提供修改位置的选项，
+SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只能自己画一个窗口 ——
+插件内置了这条 `banner` 模式：
+
+```json
+// ~/.dsh/dsh-notify/config.json
+{ "windowsStyle": "banner",
+  "bannerPosition": "topright",   // topright / topleft / bottomright / bottomleft
+  "bannerWidth": 380,
+  "bannerDurationMs": 8000 }      // 0 = 一直显示到点击关闭
+```
+
+效果：置顶、无边框、圆角、带官方彩色图标 + 标题 + 正文，点击直接打开 DSH，
+自动消失（或点右上角关闭）。它就是「微信式右上角横幅」。
+
+> 代价说清楚：`banner` **不是系统通知** —— 不进「通知中心」、不受专注助手管理、
+> 错过就没了。所以默认仍是 `toast`（右下角系统通知，但进通知中心）。
+> 审批这类「等用户处理」的场景，插件本来就会每 30 秒重提醒（新横幅会再出现一条）。
+
+### Windows 的三种形态
+
+`windowsStyle: 'toast'`（默认）时按优先级自动挑：
 
 1. **SnoreToast**（auto 优先）：单文件 exe、无需注册 AUMID、支持通知内图片
    ```json
@@ -72,8 +95,11 @@ sudo pacman -S libnotify           # Arch
    「Windows PowerShell」—— 想换成自己的名字，注册一个 AUMID 并填 `windowsAppId`。
 3. 都没有 → 用 `command` 模板接你自己的通知工具。
 
+`windowsStyle: 'banner'` 时直接用 PowerShell + WinForms 自绘横幅（见上），
+`backend: 'banner'` 也能强制指定。
+
 > ⚠️ 诚实说明：Windows / Linux 后端是按两平台的官方机制实现、并用**参数级单元测试**
-> 覆盖的（50 条断言里 3 条专测这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
+> 覆盖的（52 条断言里 5 条专测这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
 > macOS 那条路是真机跑通的。
 
 ### 自定义命令（任意平台）
@@ -187,6 +213,10 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 | `backend` | `auto` | `auto` / `osascript` / `terminal-notifier` / `command` |
 | `command` | — | `backend: 'command'` 时的 argv 模板，占位符 `{title}` `{subtitle}` `{body}` |
 | `openUrl` | `http://127.0.0.1:3080` | 点击通知打开的地址（仅 terminal-notifier 支持） |
+| `windowsStyle` | `toast` | Windows 通知形态：`toast`（系统通知）或 `banner`（自绘横幅） |
+| `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
+| `bannerWidth` | `380` | banner 宽度（像素） |
+| `bannerDurationMs` | `8000` | banner 自动关闭毫秒数；`0` = 一直显示到手动关闭 |
 | `snoretoastCommand` | `SnoreToast.exe` | Windows：SnoreToast 的命令名或绝对路径 |
 | `windowsAppId` | 系统 PowerShell 的 AUMID | Windows：PowerShell Toast 用的 AppUserModelID |
 | `linuxUrgentUrgency` | `critical` | Linux：审批/提问的 `notify-send -u` 级别 |

@@ -100,6 +100,18 @@ const DEFAULT_CONFIG = {
   windowsAppId: '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe',
   /** Linux：notify-send 的紧急级别映射（审批/提问用 critical 更不容易被自动收起）。 */
   linuxUrgentUrgency: 'critical',
+  /**
+   * Windows 通知形态：
+   *   'toast'  = 系统 Toast（进通知中心；位置由系统固定在右下角，改不了）
+   *   'banner' = 自绘的置顶横幅小窗（位置/尺寸可控，能贴右上角；但不是系统通知）
+   */
+  windowsStyle: 'toast',
+  /** banner 模式的位置：topright / topleft / bottomright / bottomleft。 */
+  bannerPosition: 'topright',
+  /** banner 模式的宽度（像素）。 */
+  bannerWidth: 380,
+  /** banner 模式自动关闭的毫秒数；0 = 一直显示直到点击关闭。 */
+  bannerDurationMs: 8_000,
   /** 页面卡片轮询的同源路由。 */
   feedPath: '/dsh-notify/feed',
   /** 页面即时推送（SSE）的同源路由。 */
@@ -290,6 +302,75 @@ function powershellToastScript(title, body, appId, iconPath) {
     '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)',
     `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(${psQuote(appId)}).Show($toast)`,
   ].join('; ')
+}
+
+/**
+ * 生成一段 PowerShell 脚本：在屏幕角落画一个置顶的「微信式」横幅小窗。
+ *
+ * 为什么需要它：Windows 的系统 Toast 位置由系统固定（右下角），微软明确表示没有
+ * 提供修改位置的设置；SnoreToast 也没有位置参数。想放到右上角，只能自己画窗口。
+ *
+ * 代价（必须说清楚）：它**不是系统通知** —— 不进「通知中心」、不受专注助手管理，
+ * 也不会被错过后的历史列表记住。所以默认仍是 'toast'，需要右上角时再开 'banner'。
+ */
+function powershellBannerScript(options) {
+  const q = (text) => `'${String(text).replaceAll("'", "''")}'`
+  const margin = 16
+  const height = options.height
+  const atLeft = options.position === 'topleft' || options.position === 'bottomleft'
+  const atBottom = options.position === 'bottomleft' || options.position === 'bottomright'
+  const leftExpr = atLeft ? `$wa.Left + ${margin}` : `$wa.Right - $form.Width - ${margin}`
+  const topExpr = atBottom ? `$wa.Bottom - $form.Height - ${margin}` : `$wa.Top + ${margin}`
+  const openUrl = typeof options.openUrl === 'string' && options.openUrl !== '' ? options.openUrl : ''
+  const click = openUrl === '' ? '' : [
+    `$onClick = { Start-Process ${q(openUrl)}; $form.Close() }`,
+    '$form.Add_Click($onClick); $title.Add_Click($onClick)',
+    '$body.Add_Click($onClick); $pic.Add_Click($onClick)',
+  ].join('; ')
+  const autoClose = options.durationMs > 0
+    ? `$timer = New-Object System.Windows.Forms.Timer; $timer.Interval = ${Math.round(options.durationMs)}`
+      + '; $timer.Add_Tick({ $form.Close() }); $timer.Start()'
+    : ''
+  return [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    'Add-Type -AssemblyName System.Drawing',
+    '[System.Windows.Forms.Application]::EnableVisualStyles()',
+    '$form = New-Object System.Windows.Forms.Form',
+    "$form.FormBorderStyle = 'None'",
+    "$form.StartPosition = 'Manual'",
+    '$form.TopMost = $true',
+    '$form.ShowInTaskbar = $false',
+    '$form.BackColor = [System.Drawing.Color]::FromArgb(28, 30, 34)',
+    `$form.Width = ${Math.round(options.width)}; $form.Height = ${height}`,
+    '$wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea',
+    `$form.Left = ${leftExpr}; $form.Top = ${topExpr}`,
+    '$pic = New-Object System.Windows.Forms.PictureBox',
+    '$pic.SizeMode = "Zoom"; $pic.Left = 14; $pic.Top = 16; $pic.Width = 64; $pic.Height = 64',
+    typeof options.iconPath === 'string' && options.iconPath !== ''
+      ? `$pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)})` : '',
+    '$form.Controls.Add($pic)',
+    '$title = New-Object System.Windows.Forms.Label',
+    `$title.Text = ${q(options.title)}`,
+    '$title.ForeColor = [System.Drawing.Color]::White',
+    '$title.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)',
+    '$title.Left = 90; $title.Top = 16; $title.Width = $form.Width - 104; $title.Height = 24',
+    '$form.Controls.Add($title)',
+    '$body = New-Object System.Windows.Forms.Label',
+    `$body.Text = ${q(options.body)}`,
+    '$body.ForeColor = [System.Drawing.Color]::FromArgb(200, 206, 214)',
+    '$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
+    '$body.Left = 90; $body.Top = 44; $body.Width = $form.Width - 104; $body.Height = 40',
+    '$form.Controls.Add($body)',
+    // 圆角
+    '$path = New-Object System.Drawing.Drawing2D.GraphicsPath',
+    '$r = 12; $w = $form.Width; $h = $form.Height',
+    '$path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($w - $r, 0, $r, $r, 270, 90)',
+    '$path.AddArc($w - $r, $h - $r, $r, $r, 0, 90); $path.AddArc(0, $h - $r, $r, $r, 90, 90)',
+    '$path.CloseFigure(); $form.Region = New-Object System.Drawing.Region($path)',
+    click,
+    autoClose,
+    '$form.ShowDialog() | Out-Null',
+  ].filter((line) => line !== '').join('; ')
 }
 
 /** 序列化一个 JSON 响应。 */
@@ -639,6 +720,7 @@ export function apply(ctx, config = {}) {
       if (cfg.backend === 'notify-send') return pickNotifySend()
       if (cfg.backend === 'snoretoast') return pickSnoreToast()
       if (cfg.backend === 'powershell') return pickPowerShell()
+      if (cfg.backend === 'banner') return pickBanner()
 
       // auto：按平台挑
       if (platform === 'darwin') {
@@ -647,6 +729,8 @@ export function apply(ctx, config = {}) {
         return { kind: 'notifier' }
       }
       if (platform === 'win32') {
+        // banner：自绘右上角横幅（位置可控，但不是系统通知）
+        if (cfg.windowsStyle === 'banner' && (await pickBanner()) !== undefined) return pickBanner()
         // SnoreToast 最省事（单文件、支持图片、无需注册）；没有就退回 PowerShell Toast。
         return (await pickSnoreToast()) ?? (await pickPowerShell())
           ?? (cfg.command ? { kind: 'command' } : undefined)
@@ -682,6 +766,13 @@ export function apply(ctx, config = {}) {
     if (isAbsolutePath(command)) return { kind: 'snoretoast', exe: command }
     const exe = await resolveExe(command)
     return exe === undefined ? undefined : { kind: 'snoretoast', exe }
+  }
+
+  /** Windows：自绘置顶横幅小窗（位置可控：默认右上角）。 */
+  async function pickBanner() {
+    if (platform !== 'win32') return undefined
+    const ps = await pickPowerShell()
+    return ps === undefined ? undefined : { kind: 'banner', exe: ps.exe }
   }
 
   /** Windows：PowerShell + WinRT Toast（免安装；图标只能靠通知内图片）。 */
@@ -1045,6 +1136,24 @@ export function apply(ctx, config = {}) {
         argv.push('-appID', cfg.windowsAppId)
         if (!sound) argv.push('-silent')
         spawnNotify(argv, message.cwd)
+        return
+      }
+
+      // Windows：自绘置顶横幅（位置可控，默认右上角；不是系统通知）
+      if (backend.kind === 'banner') {
+        spawnNotify([
+          backend.exe, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-Command', powershellBannerScript({
+            title: message.title,
+            body: message.body,
+            iconPath,
+            position: cfg.bannerPosition,
+            width: cfg.bannerWidth,
+            height: 96,
+            durationMs: cfg.bannerDurationMs,
+            openUrl: cfg.openUrl,
+          }),
+        ], message.cwd)
         return
       }
 
