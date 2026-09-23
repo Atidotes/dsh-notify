@@ -718,6 +718,8 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   const diag = await bench.route(`${FEED_PATH}?since=0`)
   if (diag?.diag?.backend === 'banner') ok('诊断里 backend=banner（Windows 默认通道可核对）')
   else bad(`诊断 backend 不对：${JSON.stringify(diag?.diag?.backend)}`)
+  if (diag?.diag?.windowsStyle === 'banner') ok('诊断回显生效的 windowsStyle（能看出是不是被 config.json 覆盖成 toast）')
+  else bad(`诊断没有回显 windowsStyle：${JSON.stringify(diag?.diag?.windowsStyle)}`)
 }
 
 // --- 15. 投递失败必须看得见（PowerShell 出错但退出码 0 的坑）------------------

@@ -629,6 +629,10 @@ export function apply(ctx, config = {}) {
                   platform,
                   subprocess: service('subprocess') !== undefined,
                   backend: backendKind ?? 'unresolved',
+                  // 生效的配置：Windows 上「弹的是右下角 Toast 还是右上角弹出窗」
+                  // 完全由这两个值决定，写进诊断就不用猜是哪一层覆盖了默认值。
+                  backendConfig: cfg.backend,
+                  windowsStyle: cfg.windowsStyle,
                   notifier: notifierState ?? 'idle',
                   notifierPath,
                   notifierBundleId: notifierBundleId(),

@@ -72,13 +72,27 @@ Windows 的通知位置由系统固定在**右下角**，微软明确表示没�
 SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只能自己画一个窗口 ——
 这就是 Windows 的**默认形态** `banner`：
 
+配置文件：`~/.dsh/dsh-notify/config.json`（Windows：`%USERPROFILE%\.dsh\dsh-notify\config.json`）。
+**必须是严格 JSON —— 不能带注释**，带注释会解析失败、整个文件被忽略（回退到默认值）。
+
 ```json
-// ~/.dsh/dsh-notify/config.json（Windows：%USERPROFILE%\.dsh\dsh-notify\config.json）
-{ "windowsStyle": "banner",        // 默认值；写出来是为了让你知道可以改
-  "bannerPosition": "topright",    // topright / topleft / bottomright / bottomleft
+{
+  "windowsStyle": "banner",
+  "bannerPosition": "topright",
   "bannerWidth": 380,
-  "bannerDurationMs": 8000 }       // 0 = 一直显示到点击关闭
+  "bannerDurationMs": 8000
+}
 ```
+
+| 键 | 可取值 | 说明 |
+|---|---|---|
+| `windowsStyle` | `banner`（默认）/ `toast` | `toast` = 系统通知（右下角、进通知中心、可能被专注助手吞） |
+| `bannerPosition` | `topright`（默认）/ `topleft` / `bottomright` / `bottomleft` | 自绘弹出窗的位置 |
+| `bannerWidth` | `380` | 宽度（像素） |
+| `bannerDurationMs` | `8000` | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
+
+想**强制**走自绘弹出窗（不看 `windowsStyle`、也不依赖默认值），再加一行
+`"backend": "banner"` —— 这样连旧版本插件也会走右上角那条路。
 
 效果：置顶、无边框、圆角、带官方彩色图标 + 标题 + 正文，点击直接打开 DSH，
 自动消失（或点右上角关闭）。它就是「微信式右上角横幅」。
@@ -120,6 +134,7 @@ curl.exe -s "http://127.0.0.1:3080/dsh-notify/feed?since=0"
 | `diag.backend: "none"` | 没有可用通道 | 确认 `powershell.exe` 在 PATH（或装 SnoreToast） |
 | `diag.failed > 0` + `lastStderr` | 通知命令跑了但报错 | `lastStderr` 就是 PowerShell 的原话，照着修 |
 | `delivered > 0`、`failed: 0`，但屏幕上什么都没有 | 命令成功了、系统没显示 | 最典型就是**专注助手**吞掉 Toast → 用默认的 `banner` 形态 |
+| 弹出来的是**右下角**的「Windows PowerShell」通知 | 走的是系统 Toast，不是自绘弹出窗 | 看 `windowsStyle`：是 `toast` 就改成 `banner`（见下），是旧版代码则更新 + 重启 |
 
 ```powershell
 # ② 直接验证「弹出窗」能不能画出来（用的就是插件会 spawn 的那段脚本）
@@ -226,11 +241,12 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 默认值写在 `dsh/host.js` 的 `DEFAULT_CONFIG` 里，也可以用**外部配置文件**覆盖（不改代码、各平台一致）：
 
 ```json
-// ~/.dsh/dsh-notify/config.json
 { "remindEveryMs": 60000, "titleFrom": "project",
   "backend": "command",
   "command": ["notify-send", "-a", "{app}", "-i", "{icon}", "{title}", "{body}"] }
 ```
+
+（同上：严格 JSON，不能带注释。）
 
 下面的表就是全部可调项：
 
@@ -277,6 +293,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 { "head": 3,
   "items": [{ "seq": 1, "kind": "approval", "name": "deepseek-plugin", "body": "🔐 bash 需要你审批…" }],
   "diag": { "platform": "darwin", "subprocess": true, "backend": "osascript",
+            "backendConfig": "auto", "windowsStyle": "banner",
             "delivered": 3, "failed": 0, "lastError": null,
             "lastCommand": "/usr/bin/osascript -e on run argv",
             "lastExitCode": 0, "lastStderr": null, "lastDeliveredAt": 1790165239653,
@@ -285,6 +302,9 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 
 - `backend: "osascript"` → 主通道正常（跟浏览器无关）；`"none"` → 主通道不可用，页面会亮出「开启浏览器通知」的提示条走兜底。
 - `streams` → 当前连着的页面数（SSE 长连接）。
+- `backend` → 实际选中的通道；`backendConfig` / `windowsStyle` → **生效的配置值**。
+  Windows 上「弹的是右下角 Toast 还是右上角弹出窗」就由后两个值决定 —— 如果
+  `windowsStyle` 是 `toast`，说明被 `config.json` 覆盖了（不是默认值 `banner`）。
 - `delivered` → 已 spawn 的通知命令数；`failed` → 其中**非 0 退出**的次数。
 - `lastError` / `lastExitCode` / `lastStderr` → 最近一次失败的原因、退出码、命令的 stderr 尾巴。
   PowerShell 出错时**退出码经常是 0**，所以脚本被包成「失败就非 0 退出 + 写 stderr」，
