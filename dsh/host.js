@@ -359,15 +359,23 @@ export function powershellBannerScript(options) {
     : ''
   /** 把 96 DPI 下的基准尺寸换算成当前屏幕的像素。 */
   const px = (base) => `[int][Math]::Round(${base} * $scale)`
+  /**
+   * 让一条**装饰性**语句失败时不至于整条通知消失。
+   *
+   * 教训（真机反馈）：给整段脚本套一个 try/catch 之后，任何一句装饰性语句报错都会被
+   * 外层捕获并 exit 1 —— 窗口直接不出现，而这条语句在旧版里只是打一行错、窗口照弹。
+   * 所以装饰性语句一律「自带 try/catch + Write-Warning 进 stderr」，窗口才是必须出现的。
+   */
+  const soft = (body) => `try { ${body} } catch { Write-Warning "dsh-notify 横幅降级：$_" }`
   return wrapPowerShell([
     'Add-Type -AssemblyName System.Windows.Forms',
     'Add-Type -AssemblyName System.Drawing',
-    // DPI 感知：不做这一步，缩放屏上整窗会被位图放大（又大又糊）
-    "try { Add-Type -Namespace Dsh -Name Dpi -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();' } catch { }",
-    'try { [Dsh.Dpi]::SetProcessDPIAware() | Out-Null } catch { }',
+    // DPI 感知：不做这一步，缩放屏上整窗会被位图放大（又大又糊）。失败只降级成 100%。
+    soft("Add-Type -Namespace Dsh -Name Dpi -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'"),
+    soft('[Dsh.Dpi]::SetProcessDPIAware() | Out-Null'),
     '[System.Windows.Forms.Application]::EnableVisualStyles()',
     '$scale = 1.0',
-    'try { $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); if ($g.DpiX -gt 0) { $scale = [Math]::Round($g.DpiX / 96.0, 2) }; $g.Dispose() } catch { }',
+    soft('$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); if ($g -ne $null) { if ($g.DpiX -gt 0) { $scale = [Math]::Round($g.DpiX / 96.0, 2) }; $g.Dispose() }'),
     'if ($scale -le 0.5 -or $scale -gt 4) { $scale = 1.0 }',
     // 版式基准（96 DPI）：360×84、12px 内边距、40×40 图标、13/12px 文字 —— 对齐 macOS 横幅
     `$W = ${px(width)}; $H = ${px(height)}`,
@@ -376,7 +384,7 @@ export function powershellBannerScript(options) {
     `$bodyH = $H - $bodyTop - ${px(12)}`,
     // 浅色/深色跟随 Windows 应用主题（macOS 通知也跟随系统外观）
     '$light = 1',
-    "try { $light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme } catch { }",
+    soft("$light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme"),
     'if ($null -eq $light) { $light = 1 }',
     '$bg = if ($light -eq 1) { [System.Drawing.Color]::FromArgb(248, 248, 250) } else { [System.Drawing.Color]::FromArgb(44, 44, 46) }',
     '$fg = if ($light -eq 1) { [System.Drawing.Color]::FromArgb(29, 29, 31) } else { [System.Drawing.Color]::White }',
@@ -386,7 +394,7 @@ export function powershellBannerScript(options) {
     "$form.FormBorderStyle = 'None'",
     "$form.StartPosition = 'Manual'",
     // 自己按 DPI 缩放，禁止 WinForms 再缩一次（否则又是「太大」）
-    "$form.AutoScaleMode = 'None'",
+    soft("$form.AutoScaleMode = 'None'"),
     '$form.TopMost = $true',
     '$form.ShowInTaskbar = $false',
     '$form.BackColor = $bg',
@@ -397,29 +405,24 @@ export function powershellBannerScript(options) {
     '$pic.SizeMode = "Zoom"; $pic.Left = $pad; $pic.Top = [int][Math]::Round(($H - $icon) / 2); $pic.Width = $icon; $pic.Height = $icon',
     typeof options.iconPath === 'string' && options.iconPath !== ''
       // 图标读不出来只降级（警告进 stderr → diag.lastStderr）：横幅本身必须照弹。
-      ? `try { $pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)}) }`
-        + ' catch { Write-Warning "通知图标读取失败：$_" }' : '',
+      ? soft(`$pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)})`) : '',
     '$form.Controls.Add($pic)',
     '$title = New-Object System.Windows.Forms.Label',
     `$title.Text = ${q(options.title)}`,
     '$title.ForeColor = $fg',
-    // 字号用 Pixel：DPI 已由 $scale 处理，避免 WinForms 再按点数缩一次
-    "$title.Font = New-Object System.Drawing.Font('Segoe UI', [float](13 * $scale), [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)",
+    // 字号用「点」：DPI 感知后 GDI+ 会自己按屏幕 DPI 换算，正好等于 13px / 12px 的观感
+    soft('$title.Font = New-Object System.Drawing.Font("Segoe UI", 9.75, [System.Drawing.FontStyle]::Bold)'),
     '$title.Left = $pad + $icon + $gap; $title.Top = $titleTop; $title.Width = $W - $title.Left - $pad; $title.Height = $titleH',
-    '$title.AutoEllipsis = $true',
     '$form.Controls.Add($title)',
     '$body = New-Object System.Windows.Forms.Label',
     `$body.Text = ${q(options.body)}`,
     '$body.ForeColor = $muted',
-    "$body.Font = New-Object System.Drawing.Font('Segoe UI', [float](12 * $scale), [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)",
+    soft('$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)'),
     '$body.Left = $title.Left; $body.Top = $bodyTop; $body.Width = $title.Width; $body.Height = $bodyH',
     '$form.Controls.Add($body)',
-    // 16px 圆角 + 1px 描边：macOS 通知卡片的形状
-    '$path = New-Object System.Drawing.Drawing2D.GraphicsPath',
-    '$path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($W - $r, 0, $r, $r, 270, 90)',
-    '$path.AddArc($W - $r, $H - $r, $r, $r, 0, 90); $path.AddArc(0, $H - $r, $r, $r, 90, 90)',
-    '$path.CloseFigure(); $form.Region = New-Object System.Drawing.Region($path)',
-    '$form.Add_Paint({ param($sender, $e) $pen = New-Object System.Drawing.Pen($lineColor, 1); $e.Graphics.SmoothingMode = "AntiAlias"; $e.Graphics.DrawPath($pen, $path); $pen.Dispose() })',
+    // 16px 圆角 + 1px 描边：macOS 通知卡片的形状（失败只丢外观）
+    soft('$path = New-Object System.Drawing.Drawing2D.GraphicsPath; $path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($W - $r, 0, $r, $r, 270, 90); $path.AddArc($W - $r, $H - $r, $r, $r, 0, 90); $path.AddArc(0, $H - $r, $r, $r, 90, 90); $path.CloseFigure(); $form.Region = New-Object System.Drawing.Region($path)'),
+    soft('$form.Add_Paint({ param($sender, $e) try { $pen = New-Object System.Drawing.Pen($lineColor, 1); $e.Graphics.SmoothingMode = "AntiAlias"; $e.Graphics.DrawPath($pen, $path); $pen.Dispose() } catch { } })'),
     click,
     autoClose,
     '$form.ShowDialog() | Out-Null',
@@ -470,6 +473,8 @@ export function apply(ctx, config = {}) {
   let lastExitCode
   let lastStderr
   let lastDeliveredAt
+  /** 横幅失败后退回系统 Toast 时记一句，便于区分「本来就该是 Toast」和「兜底」。 */
+  let lastFallback
 
   // 通知 app（自编译 Swift，带官方图标）的状态：undefined → 'ready' | 'failed'
   let notifierState
@@ -680,6 +685,7 @@ export function apply(ctx, config = {}) {
                   lastExitCode,
                   lastStderr,
                   lastDeliveredAt,
+                  lastFallback,
                   streams: streams.size,
                 },
               })
@@ -916,12 +922,39 @@ export function apply(ctx, config = {}) {
           console.warn(`[dsh-notify] 通知命令执行失败：${lastError}`)
         })
       }
-      return true
+      return handle ?? true
     } catch (error) {
       lastError = describe(error)
       console.error(`[dsh-notify] 无法执行通知命令：${lastError}`)
       return false
     }
+  }
+
+  /**
+   * 自绘横幅失败（PowerShell 报错 / WinForms 不可用）时，退回系统 Toast。
+   *
+   * 「什么都没弹」是最差的失败模式：用户根本不知道有通知。退回 Toast 至少右下角能看到，
+   * 而且失败原因（退出码 + stderr）已经写进 diag，不会变成静默。
+   */
+  function attachToastFallback(handle, message, iconPath) {
+    if (!handle || !handle.done || typeof handle.done.then !== 'function') return
+    handle.done.then((outcome) => {
+      if (disposed) return
+      const exitCode = outcome?.exitCode
+      if (exitCode === 0 || exitCode === null) return
+      void pickPowerShell().then((ps) => {
+        if (disposed || ps === undefined) return
+        const bannerError = lastError
+        lastFallback = 'toast'
+        spawnNotify([
+          ps.exe, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-Command', powershellToastScript(message.title, message.body, cfg.windowsAppId, iconPath),
+        ], message.cwd)
+        // spawnNotify 会把 lastError 清空：把横幅失败的原因补回去，
+        // 否则「右下角弹了 Toast」会掩盖「右上角为什么没弹」。
+        if (bannerError !== undefined) lastError = `${bannerError}（已退回系统 Toast）`
+      })
+    }, () => {})
   }
 
   /** 跑一条命令并等它结束；任何失败都返回 undefined。构建通知 app 用。 */
@@ -1246,7 +1279,7 @@ export function apply(ctx, config = {}) {
 
       // Windows：自绘置顶横幅（位置可控，默认右上角；不是系统通知）
       if (backend.kind === 'banner') {
-        spawnNotify([
+        const bannerHandle = spawnNotify([
           backend.exe, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
           '-Command', powershellBannerScript({
             title: message.title,
@@ -1259,6 +1292,8 @@ export function apply(ctx, config = {}) {
             openUrl: cfg.openUrl,
           }),
         ], message.cwd)
+        // 自绘窗口失败时至少退回系统 Toast —— 不允许「什么都没有」。
+        attachToastFallback(bannerHandle, message, iconPath)
         return
       }
 

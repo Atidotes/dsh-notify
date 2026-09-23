@@ -687,7 +687,7 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     ['Round(360 * $scale)', '宽度按 macOS 横幅基准 360 缩放'],
     ['Round(84 * $scale)', '高度按 macOS 横幅基准 84 缩放'],
     ['Round(40 * $scale)', '图标 40×40（macOS 图标位）'],
-    ['GraphicsUnit]::Pixel', '字号用像素单位（DPI 已自己处理，避免二次缩放）'],
+    ['Font("Segoe UI", 9.75', '标题 13px 观感（DPI 感知后按点自动换算）'],
     ['AppsUseLightTheme', '浅色/深色跟随系统外观'],
   ]
   const missing = checks.filter(([needle]) => !script.includes(needle))
@@ -701,6 +701,10 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   } else {
     ok('banner 模式不再走系统 Toast（位置才可控）')
   }
+  // 装饰性语句必须逐条兜底：单句报错不能让整条通知消失（真机踩过的坑）
+  const softened = (script.match(/横幅降级/g) ?? []).length
+  if (softened >= 5) ok(`装饰性语句逐条兜底（${softened} 处 try/catch，单句报错只丢外观）`)
+  else bad(`装饰性语句没有逐条兜底：只找到 ${softened} 处`)
 }
 
 // --- 14. Windows 默认就是「弹出窗」（用户实测：default toast 时什么都没弹）----
@@ -751,13 +755,52 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   else bad(`投递失败没有计入诊断：${JSON.stringify(d.failed)}`)
   if (typeof d.lastError === 'string' && d.lastError.includes('退出码 1')) ok(`失败原因进 lastError：「${d.lastError}」`)
   else bad(`lastError 没说明失败：${JSON.stringify(d.lastError)}`)
-  if (typeof d.lastStderr === 'string' && d.lastStderr.includes('System.Windows.Forms')) {
+  // 兜底 Toast 会覆盖 lastStderr/lastExitCode（它们记的是「最后一条命令」），
+  // 但横幅失败原因必须已经落在 lastError 里（含 PowerShell 的 stderr 原文）。
+  if (typeof d.lastError === 'string' && d.lastError.includes('System.Windows.Forms')) {
     ok('PowerShell 的 stderr 被采集进诊断（能定位到具体原因）')
+  } else {
+    bad(`lastError 里没有 stderr 原文：${JSON.stringify(d.lastError)}`)
+  }
+  // 横幅失败 → 必须还有一条系统 Toast 兜底，不允许「什么都没有」
+  const fallbackToast = captured.find((argv) => argv.some((part) => String(part).includes('ToastNotificationManager')))
+  if (fallbackToast !== undefined) ok('横幅失败后自动退回系统 Toast（不会「什么都没弹」）')
+  else bad(`横幅失败后没有兜底通知：${JSON.stringify(captured.map((a) => a[0]))}`)
+  if (d.lastFallback === 'toast') ok('诊断记录 lastFallback=toast（能区分兜底和本来就该弹的 Toast）')
+  else bad(`lastFallback 不对：${JSON.stringify(d.lastFallback)}`)
+  if (typeof d.lastError === 'string' && d.lastError.includes('已退回系统 Toast')) {
+    ok('兜底后仍保留横幅失败的原因（lastError 不被清掉）')
+  } else {
+    bad(`兜底把失败原因冲掉了：${JSON.stringify(d.lastError)}`)
+  }
+}
+
+// --- 16. Toast 本身失败时，原样保留退出码与 stderr（没有兜底可退）------------
+{
+  captured.length = 0
+  const bench = makeCtx({
+    executables: { 'powershell.exe': 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' },
+    sessions: { 'session-20': { header: { cwd: 'C:\work\proj' } } },
+    failOn: 'ToastNotificationManager',
+    failStderr: '无法解析 WinRT 类型 Windows.UI.Notifications',
+  })
+  await withPlatform('win32', async () => {
+    apply(bench.ctx, { remindEveryMs: 0, windowsStyle: 'toast' })
+  })
+  await bench.call('approval/request', { agent: { id: 'session-20' }, toolName: 'bash' })
+  await settle()
+  const d = (await bench.route(`${FEED_PATH}?since=0`))?.diag ?? {}
+  if (d.failed >= 1) ok(`Toast 失败也计入诊断（failed=${d.failed}）`)
+  else bad(`Toast 失败没有计入诊断：${JSON.stringify(d.failed)}`)
+  if (d.lastExitCode === 1) ok('失败命令的退出码留在 lastExitCode')
+  else bad(`lastExitCode 不对：${JSON.stringify(d.lastExitCode)}`)
+  if (typeof d.lastStderr === 'string' && d.lastStderr.includes('WinRT')) {
+    ok('失败命令的 stderr 留在 lastStderr')
   } else {
     bad(`lastStderr 没采到：${JSON.stringify(d.lastStderr)}`)
   }
-  if (d.lastExitCode === 1) ok('诊断里有命令退出码（lastExitCode=1）')
-  else bad(`lastExitCode 不对：${JSON.stringify(d.lastExitCode)}`)
+  if (d.lastFallback === undefined) ok('走 Toast 主通道时不会多此一举地再兜底一次')
+  else bad(`不该出现兜底：${JSON.stringify(d.lastFallback)}`)
 }
 
 console.log('')

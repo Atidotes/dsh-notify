@@ -103,9 +103,19 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 变深色** —— 跟随 Windows 的「应用模式」设置）。
 
 > **关于「弹出窗太大」**：脚本会先声明 **DPI 感知**（`SetProcessDPIAware`）再按
-> `DpiX / 96` 缩放全部尺寸与字号。不做这一步时，150% / 200% 缩放的屏幕上 Windows
-> 会把整个窗口当位图放大 —— 又大又糊，这才是「太大」的根因；同时 `AutoScaleMode`
-> 设为 `None`、字号用像素单位，避免 WinForms 再缩一次。
+> `DpiX / 96` 缩放全部版式。不做这一步时，150% / 200% 缩放的屏幕上 Windows 会把
+> 整个窗口当位图放大 —— 又大又糊，这才是「太大」的根因；同时 `AutoScaleMode`
+> 设为 `None`，字号用「点」交给 GDI+ 按屏幕 DPI 换算。
+>
+> **故障隔离（真机踩过的坑）**：整段脚本外层有 `try/catch`，但**装饰性语句各自还带
+> 一层** —— DPI、主题、图标、字体、圆角、描边任何一条失败都只丢一点外观，并把原因
+> `Write-Warning` 到 stderr（进 `diag.lastStderr`），**横幅本身照弹**。
+> 早期版本把整段套一个 try/catch，结果某条装饰语句报错就让整条通知消失（exit 1），
+> 表现是「Windows 上什么都没有」。
+>
+> **兜底**：万一横幅整体失败（PowerShell 报错 / WinForms 不可用），插件会**自动退回
+> 系统 Toast**，`diag.lastFallback` 记 `toast`，`diag.lastError` 保留横幅失败的原因 ——
+> 「什么都没弹」这个最差的结果不允许出现。
 
 **为什么默认是它**：系统 Toast 会被**专注助手 / 勿扰 / 通知总开关 / AUMID 未注册**
 静默吞掉 —— 表现就是「Windows 上什么都没弹」，而且插件完全看不出来（命令跑成功了，
@@ -145,6 +155,8 @@ curl.exe -s "http://127.0.0.1:3080/dsh-notify/feed?since=0"
 | `diag.failed > 0` + `lastStderr` | 通知命令跑了但报错 | `lastStderr` 就是 PowerShell 的原话，照着修 |
 | `delivered > 0`、`failed: 0`，但屏幕上什么都没有 | 命令成功了、系统没显示 | 最典型就是**专注助手**吞掉 Toast → 用默认的 `banner` 形态 |
 | 弹出来的是**右下角**的「Windows PowerShell」通知 | 走的是系统 Toast，不是自绘弹出窗 | 看 `windowsStyle`：是 `toast` 就改成 `banner`（见下），是旧版代码则更新 + 重启 |
+| 没有弹出窗，但右下角有 Toast | 横幅命令失败了，这是自动兜底 | 看 `diag.lastError` / `lastStderr`，那里是 PowerShell 的原话 |
+| 弹出窗出现了，但外观/尺寸不对 | 某条装饰性语句降级了 | `diag.lastStderr` 里会有 `dsh-notify 横幅降级：…` |
 
 ```powershell
 # ② 直接验证「弹出窗」能不能画出来（用的就是插件会 spawn 的那段脚本）
@@ -317,6 +329,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
   Windows 上「弹的是右下角 Toast 还是右上角弹出窗」就由后两个值决定 —— 如果
   `windowsStyle` 是 `toast`，说明被 `config.json` 覆盖了（不是默认值 `banner`）。
 - `delivered` → 已 spawn 的通知命令数；`failed` → 其中**非 0 退出**的次数。
+- `lastFallback` → 横幅失败后退回系统 Toast 时记 `toast`（区分「本来就该弹 Toast」和「兜底」）。
 - `lastError` / `lastExitCode` / `lastStderr` → 最近一次失败的原因、退出码、命令的 stderr 尾巴。
   PowerShell 出错时**退出码经常是 0**，所以脚本被包成「失败就非 0 退出 + 写 stderr」，
   Windows 上「什么都没弹」时这三个字段就是根因所在。

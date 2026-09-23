@@ -98,6 +98,8 @@ for (const [needle, label] of [
   ['bannerPosition', '横幅位置可配（topright/topleft/…）'],
   ["windowsStyle: 'banner'", 'Windows 默认形态是自绘弹出窗（系统 Toast 会被专注助手静默吞掉）'],
   ['wrapPowerShell', 'PowerShell 脚本失败要非 0 退出（否则「没弹出来」与「投递成功」无法区分）'],
+  ['横幅降级', '横幅装饰性语句逐条兜底（单句报错只丢外观，不能整条通知消失）'],
+  ['attachToastFallback', '横幅失败退回系统 Toast（绝不允许「什么都没弹」）'],
   ['lastStderr', '诊断暴露通知命令的 stderr / 退出码（Windows 排错靠它定位）'],
   ['node:fs/promises', '文件读写走 node:fs（不再依赖 /bin/sh、/bin/cat）'],
 ]) {
