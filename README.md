@@ -15,6 +15,11 @@
 npm run preview    # 把三种通知的实际文案原样打出来
 ```
 
+> **Windows 上「什么都没弹」？** 先跑 `npm run windows-check` 拿两段可粘进 PowerShell 的自检脚本，
+> 再按 [Windows 排查顺序](#windows-上什么都没弹排查顺序) 走：90% 是「系统 Toast 被专注助手吞掉」
+> 或「插件装了但没重启 DSH」。Windows 默认形态已经改成**自绘弹出窗**（不受专注助手影响）。
+
+
 两条系统级通道，按可靠性排序（**没有页面内通知**）：
 
 1. **系统通知（host 半，主通道）** — 直接调 macOS 通知中心，**跟浏览器无关**：切到任何 App、最小化浏览器、甚至把浏览器完全关掉都能看到；未处理的审批会按间隔反复提醒。
@@ -25,9 +30,10 @@ npm run preview    # 把三种通知的实际文案原样打出来
 | 能力 | macOS | Windows | Linux |
 |---|---|---|---|
 | 三种触发 / feed / SSE / 诊断路由 | ✅ | ✅ | ✅ |
-| 系统通知（host 直发） | ✅ 自编译 Swift app | ✅ SnoreToast / PowerShell Toast | ✅ notify-send |
-| 官方彩色图标 | ✅ app 图标位 | ✅ 见下（三条后端落点不同） | ✅ `notify-send -i` = 图标位 |
-| 通知位置 | 系统决定（右上角） | ⚠️ 系统 Toast 固定在右下角；`banner` 模式可自定 | 系统决定 |
+| 系统通知（host 直发） | ✅ 自编译 Swift app | ✅ 自绘弹出窗（默认）/ SnoreToast / PowerShell Toast | ✅ notify-send |
+| 官方彩色图标 | ✅ app 图标位 | ✅ 见下（各通道落点不同） | ✅ `notify-send -i` = 图标位 |
+| 通知位置 | 系统决定（右上角） | ✅ 默认右上角（`banner`）；`toast` 时系统固定在右下角 | 系统决定 |
+| 专注助手 / 勿扰 | 遵守（系统级） | `banner` 不受影响；`toast` 会被吞 | 遵守（系统级） |
 | 浏览器兜底通知 | ✅ | ✅ | ✅ |
 | 页面内卡片 | 已按需求移除 | — | — |
 | 通知点击跳转 | 需 `terminal-notifier` | ❌ | ❌ |
@@ -64,26 +70,30 @@ sudo pacman -S libnotify           # Arch
 
 Windows 的通知位置由系统固定在**右下角**，微软明确表示没有提供修改位置的选项，
 SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只能自己画一个窗口 ——
-插件内置了这条 `banner` 模式：
+这就是 Windows 的**默认形态** `banner`：
 
 ```json
-// ~/.dsh/dsh-notify/config.json
-{ "windowsStyle": "banner",
-  "bannerPosition": "topright",   // topright / topleft / bottomright / bottomleft
+// ~/.dsh/dsh-notify/config.json（Windows：%USERPROFILE%\.dsh\dsh-notify\config.json）
+{ "windowsStyle": "banner",        // 默认值；写出来是为了让你知道可以改
+  "bannerPosition": "topright",    // topright / topleft / bottomright / bottomleft
   "bannerWidth": 380,
-  "bannerDurationMs": 8000 }      // 0 = 一直显示到点击关闭
+  "bannerDurationMs": 8000 }       // 0 = 一直显示到点击关闭
 ```
 
 效果：置顶、无边框、圆角、带官方彩色图标 + 标题 + 正文，点击直接打开 DSH，
 自动消失（或点右上角关闭）。它就是「微信式右上角横幅」。
 
+**为什么默认是它**：系统 Toast 会被**专注助手 / 勿扰 / 通知总开关 / AUMID 未注册**
+静默吞掉 —— 表现就是「Windows 上什么都没弹」，而且插件完全看不出来（命令跑成功了，
+只是系统没显示）。自绘窗口不受这些影响，是「一定要弹出来」唯一可靠的形态。
+
 > 代价说清楚：`banner` **不是系统通知** —— 不进「通知中心」、不受专注助手管理、
-> 错过就没了。所以默认仍是 `toast`（右下角系统通知，但进通知中心）。
+> 错过就没了。想要进通知中心的系统 Toast，把 `windowsStyle` 设成 `'toast'`。
 > 审批这类「等用户处理」的场景，插件本来就会每 30 秒重提醒（新横幅会再出现一条）。
 
 ### Windows 的三种形态
 
-`windowsStyle: 'toast'`（默认）时按优先级自动挑：
+`windowsStyle: 'toast'` 时按优先级自动挑（`windowsStyle: 'banner'` 是默认，直接走 PowerShell + WinForms 自绘横幅，`backend: 'banner'` 也能强制指定）：
 
 1. **SnoreToast**（auto 优先）：单文件 exe、无需注册 AUMID、支持通知内图片
    ```json
@@ -95,12 +105,43 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
    「Windows PowerShell」—— 想换成自己的名字，注册一个 AUMID 并填 `windowsAppId`。
 3. 都没有 → 用 `command` 模板接你自己的通知工具。
 
-`windowsStyle: 'banner'` 时直接用 PowerShell + WinForms 自绘横幅（见上），
-`backend: 'banner'` 也能强制指定。
+### Windows 上「什么都没弹」排查顺序
+
+按这个顺序，三步就能定位（前两步那条命令在**跑 DSH 的那台 Windows** 上执行）：
+
+```powershell
+# ① 插件到底有没有在这台机器上跑起来、走的是哪条通道、命令有没有失败
+curl.exe -s "http://127.0.0.1:3080/dsh-notify/feed?since=0"
+```
+
+| 结果 | 含义 | 下一步 |
+|---|---|---|
+| HTTP 404 | 插件没装 / 没启用 | 装 bundle，然后**重启 DSH** |
+| `diag.backend: "none"` | 没有可用通道 | 确认 `powershell.exe` 在 PATH（或装 SnoreToast） |
+| `diag.failed > 0` + `lastStderr` | 通知命令跑了但报错 | `lastStderr` 就是 PowerShell 的原话，照着修 |
+| `delivered > 0`、`failed: 0`，但屏幕上什么都没有 | 命令成功了、系统没显示 | 最典型就是**专注助手**吞掉 Toast → 用默认的 `banner` 形态 |
+
+```powershell
+# ② 直接验证「弹出窗」能不能画出来（用的就是插件会 spawn 的那段脚本）
+npm run windows-check
+```
+
+把输出里的第 1 段整条粘进 **Windows PowerShell 5.1**（不是 PowerShell 7）回车：
+右上角出现深色小窗 = 命令层面完全没问题，剩下的只是插件侧（装没装 / 重启没重启）。
+
+```text
+③ 仍然什么都没有 → 就差这一步
+```
+
+- 插件改动（含本文件）**必须重启 DSH** 才生效：JS 模块在 host 进程里按代际缓存。
+- 关掉**专注助手 / 勿扰**，或直接用默认的 `banner`（不受它管）。
+- PowerShell 7（`pwsh`）**不支持** WinRT 类型解析，Toast 那条会失败；插件会自动找
+  `powershell.exe`（5.1）优先，`windows-check` 第 2 段可以单独验证 Toast 路线。
 
 > ⚠️ 诚实说明：Windows / Linux 后端是按两平台的官方机制实现、并用**参数级单元测试**
-> 覆盖的（52 条断言里 5 条专测这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
-> macOS 那条路是真机跑通的。
+> 覆盖的（58 条冒烟里 10 条专测这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
+> macOS 那条路是真机跑通的；Windows 上出问题就用 `npm run windows-check` 生成的两段
+> 自检脚本（就是插件真正会 spawn 的那两条命令）在真机上单独验。
 
 ### 自定义命令（任意平台）
 
@@ -210,10 +251,10 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 | `maxReminders` | `10` | 同一条审批最多提醒多少次（默认约 5 分钟后停止提醒）|
 | `minRunMs` | `3000` | 跑多久才算「值得通知」，避免秒回也弹窗 |
 | `includeSubagents` | `false` | 子代理 / teammate 会话是否也通知 |
-| `backend` | `auto` | `auto` / `osascript` / `terminal-notifier` / `command` |
+| `backend` | `auto` | `auto` / `osascript` / `terminal-notifier` / `notify-send` / `snoretoast` / `powershell` / `banner` / `command` |
 | `command` | — | `backend: 'command'` 时的 argv 模板，占位符 `{title}` `{subtitle}` `{body}` |
 | `openUrl` | `http://127.0.0.1:3080` | 点击通知打开的地址（仅 terminal-notifier 支持） |
-| `windowsStyle` | `toast` | Windows 通知形态：`toast`（系统通知）或 `banner`（自绘横幅） |
+| `windowsStyle` | `banner` | Windows 通知形态：`banner`（自绘弹出窗，不受专注助手影响）或 `toast`（系统通知，进通知中心） |
 | `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
 | `bannerWidth` | `380` | banner 宽度（像素） |
 | `bannerDurationMs` | `8000` | banner 自动关闭毫秒数；`0` = 一直显示到手动关闭 |
@@ -236,20 +277,26 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 { "head": 3,
   "items": [{ "seq": 1, "kind": "approval", "name": "deepseek-plugin", "body": "🔐 bash 需要你审批…" }],
   "diag": { "platform": "darwin", "subprocess": true, "backend": "osascript",
-            "delivered": 3, "lastError": null, "lastCommand": "/usr/bin/osascript -e on run argv",
+            "delivered": 3, "failed": 0, "lastError": null,
+            "lastCommand": "/usr/bin/osascript -e on run argv",
+            "lastExitCode": 0, "lastStderr": null, "lastDeliveredAt": 1790165239653,
             "streams": 1 } }
 ```
 
 - `backend: "osascript"` → 主通道正常（跟浏览器无关）；`"none"` → 主通道不可用，页面会亮出「开启浏览器通知」的提示条走兜底。
 - `streams` → 当前连着的页面数（SSE 长连接）。
-- `delivered` / `lastError` / `lastCommand` → 系统通知的投递计数、最近一次错误、最近一条命令。
+- `delivered` → 已 spawn 的通知命令数；`failed` → 其中**非 0 退出**的次数。
+- `lastError` / `lastExitCode` / `lastStderr` → 最近一次失败的原因、退出码、命令的 stderr 尾巴。
+  PowerShell 出错时**退出码经常是 0**，所以脚本被包成「失败就非 0 退出 + 写 stderr」，
+  Windows 上「什么都没弹」时这三个字段就是根因所在。
 
 ## 自检与验证
 
 ```bash
 npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE 断言
-npm run smoke                    # host 半逻辑自测（50 条断言：真机 bug 回归 + 跨平台分支）
+npm run smoke                    # host 半逻辑自测（58 条断言：真机 bug 回归 + 跨平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
+npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）
 npm run notifier -- --test       # 建好后弹一条测试通知，用来确认图标
 npm run smoke -- --real          # 真的弹出系统通知，确认通道可用

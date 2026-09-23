@@ -91,13 +91,17 @@ function makeCtx(options = {}) {
           ? (options.notifierExists === true ? 0 : 1)
           : 0
       // spawnCapture 会读 collected.stdout：模拟 `plutil -extract`（当前 app 的 bundle id）
-      // 与 `xcrun --show-sdk-path` 的输出。
+      // 与 `xcrun --show-sdk-path` 的输出。stderr 只在 failStderr 用例里给（模拟 PowerShell 报错）。
       const stdoutText = spec.argv[0] === '/usr/bin/plutil' && spec.argv.includes('-extract')
         ? (options.bundleId ?? 'com.dsh-notify.notifier.3')
         : spec.argv[0] === '/usr/bin/xcrun' ? '/fake/sdk' : ''
+      const stderrText = failed && typeof options.failStderr === 'string' ? options.failStderr : ''
       return {
         done: Promise.resolve({ exitCode, signal: null }),
-        collected: { stdout: { readFrom: () => ({ text: stdoutText, nextOffset: 0, lossy: false }) } },
+        collected: {
+          stdout: { readFrom: () => ({ text: stdoutText, nextOffset: 0, lossy: false }) },
+          stderr: { readFrom: () => ({ text: stderrText, nextOffset: 0, lossy: false }) },
+        },
       }
     },
   }
@@ -624,14 +628,14 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   } else {
     bad(`SnoreToast 参数不对：${JSON.stringify(snore)}`)
   }
-  // Windows：没有 SnoreToast 时退回 PowerShell Toast
+  // Windows：没有 SnoreToast 时退回 PowerShell Toast（windowsStyle 显式设成 toast）
   captured.length = 0
   const win2 = makeCtx({
     executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
     sessions: { 'session-16': { header: { cwd: 'C:\\work\\proj' } } },
   })
   await withPlatform('win32', async () => {
-    apply(win2.ctx, { remindEveryMs: 0 })
+    apply(win2.ctx, { remindEveryMs: 0, windowsStyle: 'toast' })
   })
   await win2.call('approval/request', { agent: { id: 'session-16' }, toolName: 'bash' })
   await settle()
@@ -689,6 +693,61 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   } else {
     ok('banner 模式不再走系统 Toast（位置才可控）')
   }
+}
+
+// --- 14. Windows 默认就是「弹出窗」（用户实测：default toast 时什么都没弹）----
+{
+  captured.length = 0
+  const bench = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-18': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    // 不给 windowsStyle：走默认值
+    apply(bench.ctx, { remindEveryMs: 0 })
+  })
+  await bench.call('approval/request', { agent: { id: 'session-18' }, toolName: 'bash' })
+  await settle()
+  const ps = captured.find((argv) => String(argv[0]).includes('powershell'))
+  const script = ps?.find((part) => String(part).includes('ShowDialog')) ?? ''
+  if (script !== '' && !script.includes('ToastNotificationManager')) {
+    ok('Windows 默认形态就是自绘弹出窗（banner），不再默认走会被专注助手吞掉的 Toast')
+  } else {
+    bad(`Windows 默认形态不是 banner：${JSON.stringify(ps?.slice(0, 2))}`)
+  }
+  const diag = await bench.route(`${FEED_PATH}?since=0`)
+  if (diag?.diag?.backend === 'banner') ok('诊断里 backend=banner（Windows 默认通道可核对）')
+  else bad(`诊断 backend 不对：${JSON.stringify(diag?.diag?.backend)}`)
+}
+
+// --- 15. 投递失败必须看得见（PowerShell 出错但退出码 0 的坑）------------------
+{
+  captured.length = 0
+  const bench = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-19': { header: { cwd: 'C:\\work\\proj' } } },
+    failOn: 'ShowDialog',
+    failStderr: 'Add-Type : 无法加载文件或程序集 System.Windows.Forms',
+  })
+  await withPlatform('win32', async () => {
+    apply(bench.ctx, { remindEveryMs: 0 })
+  })
+  // 通道探测：失败命令也会被记录，先把探测阶段的结果清掉再看真实投递
+  await bench.call('approval/request', { agent: { id: 'session-19' }, toolName: 'bash' })
+  await settle()
+  const diag = await bench.route(`${FEED_PATH}?since=0`)
+  const d = diag?.diag ?? {}
+  if (d.failed >= 1) ok(`投递失败计入诊断（failed=${d.failed}）`)
+  else bad(`投递失败没有计入诊断：${JSON.stringify(d.failed)}`)
+  if (typeof d.lastError === 'string' && d.lastError.includes('退出码 1')) ok(`失败原因进 lastError：「${d.lastError}」`)
+  else bad(`lastError 没说明失败：${JSON.stringify(d.lastError)}`)
+  if (typeof d.lastStderr === 'string' && d.lastStderr.includes('System.Windows.Forms')) {
+    ok('PowerShell 的 stderr 被采集进诊断（能定位到具体原因）')
+  } else {
+    bad(`lastStderr 没采到：${JSON.stringify(d.lastStderr)}`)
+  }
+  if (d.lastExitCode === 1) ok('诊断里有命令退出码（lastExitCode=1）')
+  else bad(`lastExitCode 不对：${JSON.stringify(d.lastExitCode)}`)
 }
 
 console.log('')

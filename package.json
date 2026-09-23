@@ -9,6 +9,7 @@
     "check": "node scripts/check.mjs",
     "smoke": "node scripts/smoke.mjs",
     "preview": "node scripts/preview.mjs",
+    "windows-check": "node scripts/windows-check.mjs",
     "notifier": "node scripts/notifier.mjs"
   },
   "exports": {

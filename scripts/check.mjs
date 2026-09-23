@@ -94,6 +94,9 @@ for (const [needle, label] of [
   ['ToastNotificationManager', 'Windows：PowerShell WinRT Toast 兜底'],
   ['ShowDialog', 'Windows：自绘横幅模式（位置可控，可贴右上角）'],
   ['bannerPosition', '横幅位置可配（topright/topleft/…）'],
+  ["windowsStyle: 'banner'", 'Windows 默认形态是自绘弹出窗（系统 Toast 会被专注助手静默吞掉）'],
+  ['wrapPowerShell', 'PowerShell 脚本失败要非 0 退出（否则「没弹出来」与「投递成功」无法区分）'],
+  ['lastStderr', '诊断暴露通知命令的 stderr / 退出码（Windows 排错靠它定位）'],
   ['node:fs/promises', '文件读写走 node:fs（不再依赖 /bin/sh、/bin/cat）'],
 ]) {
   if (hostSource.includes(needle)) ok(label)

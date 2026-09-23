@@ -102,10 +102,12 @@ const DEFAULT_CONFIG = {
   linuxUrgentUrgency: 'critical',
   /**
    * Windows 通知形态：
-   *   'toast'  = 系统 Toast（进通知中心；位置由系统固定在右下角，改不了）
-   *   'banner' = 自绘的置顶横幅小窗（位置/尺寸可控，能贴右上角；但不是系统通知）
+   *   'banner' = 自绘的置顶横幅小窗（**默认**）：位置/尺寸完全可控，能贴右上角，
+   *              并且**不受专注助手 / 通知设置影响** —— 「一定要弹出来」只有这条靠得住
+   *   'toast'  = 系统 Toast（进通知中心；位置被系统固定在右下角，而且可能被专注
+   *              助手、通知总开关、AUMID 注册状态静默吞掉，表现就是「什么都没弹」）
    */
-  windowsStyle: 'toast',
+  windowsStyle: 'banner',
   /** banner 模式的位置：topright / topleft / bottomright / bottomleft。 */
   bannerPosition: 'topright',
   /** banner 模式的宽度（像素）。 */
@@ -270,6 +272,17 @@ function escapeXmlText(text) {
 }
 
 /**
+ * 把一段 PowerShell 包成「失败就非 0 退出 + 写 stderr」。
+ *
+ * 为什么必须包：PowerShell 的非终止错误只写 stderr、**退出码仍是 0**，宿主侧
+ * `delivered += 1` 就会把「根本没弹出来」记成「投递成功」—— Windows 上「什么都没弹、
+ * 诊断却一切正常」正是这么来的。包上 try/catch 后，失败会以退出码 1 落到 diag 里。
+ */
+function wrapPowerShell(body) {
+  return `try { ${body} } catch { Write-Error $_; exit 1 }`
+}
+
+/**
  * 生成一段 PowerShell 脚本，用 WinRT Toast 弹通知。
  *
  * 用字符串拼接而不是 `$args`：`-Command` 后跟参数时 `$args` 的绑定行为在各版本
@@ -281,7 +294,7 @@ function escapeXmlText(text) {
  * WinRT 要求图片是本地文件（`file:///` URI），尺寸 ≤ 1024×1024、体积 ≤ 200 KB，
  * 包内的 deepseek.png（512×512 / 88 KB）正合适。
  */
-function powershellToastScript(title, body, appId, iconPath) {
+export function powershellToastScript(title, body, appId, iconPath) {
   const psQuote = (text) => `'${String(text).replaceAll("'", "''")}'`
   // file URI：POSIX `/a/b` → `file:///a/b`；Windows `C:/a/b` → `file:///C:/a/b`。
   const slashPath = typeof iconPath === 'string' ? iconPath.replaceAll('\\', '/') : ''
@@ -294,14 +307,14 @@ function powershellToastScript(title, body, appId, iconPath) {
   const xml = `<toast><visual><binding template="ToastGeneric">${image}`
     + `<text>${escapeXmlText(title)}</text><text>${escapeXmlText(body)}</text>`
     + '</binding></visual></toast>'
-  return [
+  return wrapPowerShell([
     '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null',
     '[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType=WindowsRuntime] > $null',
     '$xml = New-Object Windows.Data.Xml.Dom.XmlDocument',
     `$xml.LoadXml(${psQuote(xml)})`,
     '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)',
     `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(${psQuote(appId)}).Show($toast)`,
-  ].join('; ')
+  ].join('; '))
 }
 
 /**
@@ -311,9 +324,11 @@ function powershellToastScript(title, body, appId, iconPath) {
  * 提供修改位置的设置；SnoreToast 也没有位置参数。想放到右上角，只能自己画窗口。
  *
  * 代价（必须说清楚）：它**不是系统通知** —— 不进「通知中心」、不受专注助手管理，
- * 也不会被错过后的历史列表记住。所以默认仍是 'toast'，需要右上角时再开 'banner'。
+ * 也不会被错过后的历史列表记住。这是**默认形态**：系统 Toast 会被专注助手 / 通知
+ * 总开关静默吞掉（表现就是「Windows 上什么都没弹」），而自绘窗口不受这些影响；
+ * 想换回进通知中心的系统 Toast，把 `windowsStyle` 设成 `'toast'`。
  */
-function powershellBannerScript(options) {
+export function powershellBannerScript(options) {
   const q = (text) => `'${String(text).replaceAll("'", "''")}'`
   const margin = 16
   const height = options.height
@@ -331,7 +346,7 @@ function powershellBannerScript(options) {
     ? `$timer = New-Object System.Windows.Forms.Timer; $timer.Interval = ${Math.round(options.durationMs)}`
       + '; $timer.Add_Tick({ $form.Close() }); $timer.Start()'
     : ''
-  return [
+  return wrapPowerShell([
     'Add-Type -AssemblyName System.Windows.Forms',
     'Add-Type -AssemblyName System.Drawing',
     '[System.Windows.Forms.Application]::EnableVisualStyles()',
@@ -347,7 +362,9 @@ function powershellBannerScript(options) {
     '$pic = New-Object System.Windows.Forms.PictureBox',
     '$pic.SizeMode = "Zoom"; $pic.Left = 14; $pic.Top = 16; $pic.Width = 64; $pic.Height = 64',
     typeof options.iconPath === 'string' && options.iconPath !== ''
-      ? `$pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)})` : '',
+      // 图标读不出来只降级（警告进 stderr → diag.lastStderr）：横幅本身必须照弹。
+      ? `try { $pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)}) }`
+        + ' catch { Write-Warning "通知图标读取失败：$_" }' : '',
     '$form.Controls.Add($pic)',
     '$title = New-Object System.Windows.Forms.Label',
     `$title.Text = ${q(options.title)}`,
@@ -370,7 +387,7 @@ function powershellBannerScript(options) {
     click,
     autoClose,
     '$form.ShowDialog() | Out-Null',
-  ].filter((line) => line !== '').join('; ')
+  ].filter((line) => line !== '').join('; '))
 }
 
 /** 序列化一个 JSON 响应。 */
@@ -411,8 +428,12 @@ export function apply(ctx, config = {}) {
   /** 诊断字段（通过 feed 路由返回，排查时不用翻日志）。 */
   let backendKind
   let delivered = 0
+  let failed = 0
   let lastError
   let lastCommand
+  let lastExitCode
+  let lastStderr
+  let lastDeliveredAt
 
   // 通知 app（自编译 Swift，带官方图标）的状态：undefined → 'ready' | 'failed'
   let notifierState
@@ -557,6 +578,7 @@ export function apply(ctx, config = {}) {
       kind: 'status',
       backend: backendKind ?? 'unresolved',
       delivered,
+      failed,
       streams: streams.size,
       lastError,
     })
@@ -612,8 +634,12 @@ export function apply(ctx, config = {}) {
                   notifierBundleId: notifierBundleId(),
                   notifierStatus,
                   delivered,
+                  failed,
                   lastError,
                   lastCommand,
+                  lastExitCode,
+                  lastStderr,
+                  lastDeliveredAt,
                   streams: streams.size,
                 },
               })
@@ -793,7 +819,26 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /** fire-and-forget 地跑一条命令；任何失败都只记诊断，不影响调用方。 */
+  /** 读一条 collected 流的尾巴（没有 / 非采集模式则返回空串）。 */
+  function collectedTail(handle, stream) {
+    try {
+      const reader = handle?.collected?.[stream]
+      if (reader === undefined || typeof reader.readFrom !== 'function') return ''
+      const read = reader.readFrom(0)
+      return typeof read?.text === 'string' ? read.text.trim() : ''
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * fire-and-forget 地跑一条命令；**失败要看得见**。
+   *
+   * 只记录「spawn 成功」是不够的：Windows 上 PowerShell 报错也常常退出码 0，
+   * 于是「根本没弹出来」和「投递成功」在诊断里长得一模一样。所以这里把 stderr 采集
+   * 下来、并等命令结束，把退出码与 stderr 尾巴写进 diag（`failed` / `lastExitCode` /
+   * `lastStderr`），失败时同时升级 `lastError`。
+   */
   function spawnNotify(argv, cwd) {
     const subprocess = subprocessService()
     if (!subprocess || typeof subprocess.spawn !== 'function') {
@@ -804,15 +849,33 @@ export function apply(ctx, config = {}) {
       const handle = subprocess.spawn({
         argv,
         cwd: safeCwd(cwd),
-        stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+        stdio: { stdin: 'ignore', stdout: 'inherit', stderr: { maxBytes: 4_096 } },
         graceMs: 5_000,
       })
-      if (handle && handle.done && typeof handle.done.catch === 'function') {
-        handle.done.catch(() => {})
-      }
       delivered += 1
       lastError = undefined
       lastCommand = argv.slice(0, 3).join(' ')
+      if (handle && handle.done && typeof handle.done.then === 'function') {
+        handle.done.then((outcome) => {
+          // 卸载/退出时子进程会被终止，那不是「投递失败」，不要制造噪音。
+          if (disposed) return
+          const exitCode = outcome?.exitCode
+          const tail = clip(collectedTail(handle, 'stderr'), 200)
+          lastExitCode = typeof exitCode === 'number' ? exitCode : undefined
+          lastStderr = tail === '' ? undefined : tail
+          lastDeliveredAt = Date.now()
+          if (lastExitCode !== undefined && lastExitCode !== 0) {
+            failed += 1
+            lastError = `通知命令退出码 ${lastExitCode}${lastStderr === undefined ? '' : `：${lastStderr}`}`
+            console.warn(`[dsh-notify] ${lastError}`)
+          }
+        }, (error) => {
+          if (disposed) return
+          failed += 1
+          lastError = describe(error)
+          console.warn(`[dsh-notify] 通知命令执行失败：${lastError}`)
+        })
+      }
       return true
     } catch (error) {
       lastError = describe(error)
@@ -1069,6 +1132,8 @@ export function apply(ctx, config = {}) {
     delivered += 1
     lastError = undefined
     lastCommand = `open -a ${cfg.appName}.app`
+    lastExitCode = 0
+    lastDeliveredAt = Date.now()
     return true
   }
 
