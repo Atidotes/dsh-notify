@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Notifications",
+    "description": "Fires a system notification — with the official DeepSeek icon — when an approval is waiting, a question needs an answer, or a run finishes. Works on macOS, Windows and Linux, no matter which app you are in or whether the DSH page is open; pending approvals repeat every 30 seconds, and nothing is drawn inside the page."
+  }
+}

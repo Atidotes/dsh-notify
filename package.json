@@ -1,0 +1,55 @@
+{
+  "name": "dsh-notify",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 插件：需要审批、需要你回答、或者一轮任务跑完时，弹出带 DeepSeek 官方彩色图标的系统通知（macOS / Windows / Linux）；未处理的审批会按间隔重复提醒，页面里不显示任何卡片。",
+  "icon": "./icon.svg",
+  "type": "module",
+  "main": "dsh/host.js",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "preview": "node scripts/preview.mjs",
+    "notifier": "node scripts/notifier.mjs"
+  },
+  "exports": {
+    ".": "./dsh/host.js",
+    "./client": "./dsh/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dsh/",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "scripts/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "notification",
+    "system-notification",
+    "approval",
+    "macos",
+    "windows",
+    "linux",
+    "toast"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

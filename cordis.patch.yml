@@ -1,0 +1,11 @@
+# dsh-notify — bundle layer.
+#
+# package.json 的 `dsh.bundle.patch` 指向本文件：任何在 `dsh.profile.bundles`
+# 里列出 dsh-notify 的 profile 都会自动叠加这一层（GUI 的「添加插件」接受
+# bundle 时走的就是这条路），所以这个包能从插件列表直接安装，而不需要手工
+# 编辑 profile 自己的 cordis.patch.yml。
+#
+# 用 insert 而不是 override：`dsh-notify` 这个 id 没有别的行在定义。
+- insert:
+    - id: dsh-notify
+      name: 'dsh-notify'
