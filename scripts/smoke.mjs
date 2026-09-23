@@ -684,9 +684,10 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     // macOS 观感：DPI 感知 + 自己缩放（否则缩放屏上整窗被位图放大，就是「太大」）
     ['SetProcessDPIAware', 'DPI 感知（缩放屏上不再位图放大）'],
     ["AutoScaleMode = 'None'", '禁止 WinForms 二次缩放'],
-    ['Round(360 * $scale)', '宽度按 macOS 横幅基准 360 缩放'],
-    ['Round(84 * $scale)', '高度按 macOS 横幅基准 84 缩放'],
-    ['Round(40 * $scale)', '图标 40×40（macOS 图标位）'],
+    ['Round(360 * $scale)', '宽度基准 360 缩放'],
+    ['Round(36 * $scale)', '图标 36×36'],
+    ['$H = $bodyTop + $bodyH + $pad', '高度按内容自适应（不留白）'],
+    ['MeasureText', '用正文实际行高定卡片高度（两行也不会被裁）'],
     ['Font("Segoe UI", 9.75', '标题 13px 观感（DPI 感知后按点自动换算）'],
     ['AppsUseLightTheme', '浅色/深色跟随系统外观'],
   ]
@@ -705,6 +706,26 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   const softened = (script.match(/横幅降级/g) ?? []).length
   if (softened >= 5) ok(`装饰性语句逐条兜底（${softened} 处 try/catch，单句报错只丢外观）`)
   else bad(`装饰性语句没有逐条兜底：只找到 ${softened} 处`)
+
+  // 显式给了 bannerHeight 时走固定高度（想钉死尺寸的老行为）
+  captured.length = 0
+  const fixed = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-17b': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    apply(fixed.ctx, { remindEveryMs: 0, windowsStyle: 'banner', bannerHeight: 72 })
+  })
+  await fixed.call('approval/request', { agent: { id: 'session-17b' }, toolName: 'bash' })
+  await settle()
+  const fixedScript = captured
+    .find((argv) => String(argv[0]).includes('powershell'))
+    ?.find((part) => String(part).includes('ShowDialog')) ?? ''
+  if (fixedScript.includes('Round(72 * $scale)') && !fixedScript.includes('MeasureText')) {
+    ok('bannerHeight > 0 时走固定高度（自适应只作用于默认值 0）')
+  } else {
+    bad('显式 bannerHeight 没有走固定高度')
+  }
 }
 
 // --- 14. Windows 默认就是「弹出窗」（用户实测：default toast 时什么都没弹）----

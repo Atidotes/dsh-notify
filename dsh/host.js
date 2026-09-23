@@ -112,8 +112,12 @@ const DEFAULT_CONFIG = {
   bannerPosition: 'topright',
   /** banner 模式的宽度（96 DPI 下的逻辑像素；对齐 macOS 通知横幅 ≈ 360）。 */
   bannerWidth: 360,
-  /** banner 模式的高度（96 DPI 下的逻辑像素；macOS 两行横幅 ≈ 84）。 */
-  bannerHeight: 84,
+  /**
+   * banner 模式的高度（96 DPI 下的逻辑像素）：
+   *   0（默认）= 按正文实际行数**自适应**（单行 ≈ 54、两行 ≈ 70），不留白
+   *   > 0      = 固定高度（想钉死尺寸才用；设大了就会出现多余留白）
+   */
+  bannerHeight: 0,
   /** banner 模式自动关闭的毫秒数；0 = 一直显示直到点击关闭。 */
   bannerDurationMs: 8_000,
   /** 页面卡片轮询的同源路由。 */
@@ -360,6 +364,14 @@ export function powershellBannerScript(options) {
   /** 把 96 DPI 下的基准尺寸换算成当前屏幕的像素。 */
   const px = (base) => `[int][Math]::Round(${base} * $scale)`
   /**
+   * 卡片高度：
+   *   options.height <= 0（默认）= 按正文实际行数自适应（单行 ≈ 56、两行 ≈ 72），
+   *                              不留白；这是 macOS / Win11 的做法。
+   *   options.height  > 0        = 固定高度（想钉死尺寸时才用）。
+   */
+  const fixedHeight = Number.isFinite(options.height) && options.height > 0 ? Math.round(options.height) : 0
+  const fitHeight = fixedHeight === 0
+  /**
    * 让一条**装饰性**语句失败时不至于整条通知消失。
    *
    * 教训（真机反馈）：给整段脚本套一个 try/catch 之后，任何一句装饰性语句报错都会被
@@ -377,11 +389,14 @@ export function powershellBannerScript(options) {
     '$scale = 1.0',
     soft('$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); if ($g -ne $null) { if ($g.DpiX -gt 0) { $scale = [Math]::Round($g.DpiX / 96.0, 2) }; $g.Dispose() }'),
     'if ($scale -le 0.5 -or $scale -gt 4) { $scale = 1.0 }',
-    // 版式基准（96 DPI）：360×84、12px 内边距、40×40 图标、13/12px 文字 —— 对齐 macOS 横幅
-    `$W = ${px(width)}; $H = ${px(height)}`,
-    `$m = ${px(margin)}; $r = ${px(16)}; $pad = ${px(12)}; $icon = ${px(40)}; $gap = ${px(12)}`,
-    `$titleTop = ${px(13)}; $titleH = ${px(18)}; $bodyTop = ${px(34)}`,
-    `$bodyH = $H - $bodyTop - ${px(12)}`,
+    // 版式基准（96 DPI）：紧贴内容 —— 内边距 10、图标 36、标题 13px、正文 12px
+    `$W = ${px(width)}`,
+    `$m = ${px(margin)}; $r = ${px(14)}; $pad = ${px(10)}; $icon = ${px(36)}; $gap = ${px(10)}`,
+    `$titleTop = ${px(10)}; $titleH = ${px(16)}; $bodyTop = ${px(28)}`,
+    fitHeight
+      // 自适应：先按「单行正文」估高，后面量出真实行数再定稿
+      ? `$bodyH = ${px(16)}; $H = $bodyTop + $bodyH + $pad`
+      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - $pad`,
     // 浅色/深色跟随 Windows 应用主题（macOS 通知也跟随系统外观）
     '$light = 1',
     soft("$light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme"),
@@ -398,11 +413,10 @@ export function powershellBannerScript(options) {
     '$form.TopMost = $true',
     '$form.ShowInTaskbar = $false',
     '$form.BackColor = $bg',
-    '$form.Width = $W; $form.Height = $H',
+    '$form.Width = $W',
     '$wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea',
-    `$form.Left = ${leftExpr}; $form.Top = ${topExpr}`,
     '$pic = New-Object System.Windows.Forms.PictureBox',
-    '$pic.SizeMode = "Zoom"; $pic.Left = $pad; $pic.Top = [int][Math]::Round(($H - $icon) / 2); $pic.Width = $icon; $pic.Height = $icon',
+    '$pic.SizeMode = "Zoom"; $pic.Left = $pad; $pic.Width = $icon; $pic.Height = $icon',
     typeof options.iconPath === 'string' && options.iconPath !== ''
       // 图标读不出来只降级（警告进 stderr → diag.lastStderr）：横幅本身必须照弹。
       ? soft(`$pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)})`) : '',
@@ -418,9 +432,18 @@ export function powershellBannerScript(options) {
     `$body.Text = ${q(options.body)}`,
     '$body.ForeColor = $muted',
     soft('$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)'),
-    '$body.Left = $title.Left; $body.Top = $bodyTop; $body.Width = $title.Width; $body.Height = $bodyH',
+    '$body.Left = $title.Left; $body.Top = $bodyTop; $body.Width = $title.Width',
     '$form.Controls.Add($body)',
-    // 16px 圆角 + 1px 描边：macOS 通知卡片的形状（失败只丢外观）
+    // 自适应高度：量出正文真实行高再定卡片高度（单行不留白，两行也不会被裁）
+    ...(fitHeight ? [
+      soft('$measured = [System.Windows.Forms.TextRenderer]::MeasureText($body.Text, $body.Font, (New-Object System.Drawing.Size($body.Width, 1000)), [System.Windows.Forms.TextFormatFlags]::WordBreak); if ($measured.Height -gt 0) { $bodyH = [int]$measured.Height }'),
+      '$H = $bodyTop + $bodyH + $pad',
+    ] : []),
+    // 定稿：卡片高度、图标垂直居中、贴角位置都按最终高度算
+    '$body.Height = $bodyH; $form.Height = $H',
+    '$pic.Top = [int][Math]::Round(($H - $icon) / 2)',
+    `$form.Left = ${leftExpr}; $form.Top = ${topExpr}`,
+    // 14px 圆角 + 1px 描边：通知卡片的形状（失败只丢外观）
     soft('$path = New-Object System.Drawing.Drawing2D.GraphicsPath; $path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($W - $r, 0, $r, $r, 270, 90); $path.AddArc($W - $r, $H - $r, $r, $r, 0, 90); $path.AddArc(0, $H - $r, $r, $r, 90, 90); $path.CloseFigure(); $form.Region = New-Object System.Drawing.Region($path)'),
     soft('$form.Add_Paint({ param($sender, $e) try { $pen = New-Object System.Drawing.Pen($lineColor, 1); $e.Graphics.SmoothingMode = "AntiAlias"; $e.Graphics.DrawPath($pen, $path); $pen.Dispose() } catch { } })'),
     click,

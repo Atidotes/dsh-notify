@@ -80,7 +80,6 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
   "windowsStyle": "banner",
   "bannerPosition": "topright",
   "bannerWidth": 360,
-  "bannerHeight": 84,
   "bannerDurationMs": 8000
 }
 ```
@@ -90,20 +89,24 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 | `windowsStyle` | `banner`（默认）/ `toast` | `toast` = 系统通知（右下角、进通知中心、可能被专注助手吞） |
 | `bannerPosition` | `topright`（默认）/ `topleft` / `bottomright` / `bottomleft` | 自绘弹出窗的位置 |
 | `bannerWidth` | `360` | 宽度（96 DPI 下的逻辑像素） |
-| `bannerHeight` | `84` | 高度（96 DPI 下的逻辑像素） |
+| `bannerHeight` | `0`（= 自适应） | 高度：**默认按正文行数自适应**（单行 ≈ 54、两行 ≈ 70），不留白；填正数则固定高度 |
 | `bannerDurationMs` | `8000` | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
+
+> ⚠️ 早前版本把 `bannerHeight` 默认成了 `84`。如果你当时照着写进过 `config.json`，
+> **把那一行删掉（或设成 `0`）**，否则会钉死在 84 —— 正是「高度太高、留白太多」的来源。
 
 想**强制**走自绘弹出窗（不看 `windowsStyle`、也不依赖默认值），再加一行
 `"backend": "banner"` —— 这样连旧版本插件也会走右上角那条路。
 
 效果：置顶、无边框的**通知卡片**，点击任意位置打开 DSH，到点自动消失。
 
-外观按 **macOS 通知横幅** 对齐：**360×84**、**40×40** 官方彩色图标（垂直居中）、
-**13px 半粗标题 + 12px 正文**、**16px 圆角**、1px 描边、浅色卡片（**深色主题下自动
-变深色** —— 跟随 Windows 的「应用模式」设置）。
+外观按 **macOS 通知横幅** 对齐：宽 **360**、**高度按正文行数自适应**（单行 ≈ 54、
+两行 ≈ 70，用 `TextRenderer.MeasureText` 量出来，不留白也不裁字）、**36×36** 官方彩色
+图标（垂直居中）、**13px 半粗标题 + 12px 正文**、内边距 **10px**、**14px 圆角**、
+1px 描边、浅色卡片（**深色主题下自动变深色** —— 跟随 Windows 的「应用模式」设置）。
 
-> **关于「弹出窗太大」**：脚本会先声明 **DPI 感知**（`SetProcessDPIAware`）再按
-> `DpiX / 96` 缩放全部版式。不做这一步时，150% / 200% 缩放的屏幕上 Windows 会把
+> **关于「弹出窗太大 / 留白太多」**：高度默认按正文行数自适应（单行 ≈ 54），内边距 10px、
+> 图标 36px；脚本还会先声明 **DPI 感知**（`SetProcessDPIAware`）再按 `DpiX / 96` 缩放全部版式。不做这一步时，150% / 200% 缩放的屏幕上 Windows 会把
 > 整个窗口当位图放大 —— 又大又糊，这才是「太大」的根因；同时 `AutoScaleMode`
 > 设为 `None`，字号用「点」交给 GDI+ 按屏幕 DPI 换算。
 >
@@ -294,8 +297,8 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 | `openUrl` | `http://127.0.0.1:3080` | 点击通知打开的地址（仅 terminal-notifier 支持） |
 | `windowsStyle` | `banner` | Windows 通知形态：`banner`（自绘弹出窗，不受专注助手影响）或 `toast`（系统通知，进通知中心） |
 | `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
-| `bannerWidth` | `360` | banner 宽度（逻辑像素，对齐 macOS 横幅） |
-| `bannerHeight` | `84` | banner 高度（逻辑像素） |
+| `bannerWidth` | `360` | banner 宽度（逻辑像素） |
+| `bannerHeight` | `0` | banner 高度：`0` = 按正文行数自适应（推荐）；正数 = 固定高度 |
 | `bannerDurationMs` | `8000` | banner 自动关闭毫秒数；`0` = 一直显示到手动关闭 |
 | `snoretoastCommand` | `SnoreToast.exe` | Windows：SnoreToast 的命令名或绝对路径 |
 | `windowsAppId` | 系统 PowerShell 的 AUMID | Windows：PowerShell Toast 用的 AppUserModelID |
