@@ -681,6 +681,14 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     ['deepseek.png', '横幅里带官方图标'],
     ['Interval = 6000', '自动关闭时长可配'],
     ['Start-Process', '点击横幅打开 DSH'],
+    // macOS 观感：DPI 感知 + 自己缩放（否则缩放屏上整窗被位图放大，就是「太大」）
+    ['SetProcessDPIAware', 'DPI 感知（缩放屏上不再位图放大）'],
+    ["AutoScaleMode = 'None'", '禁止 WinForms 二次缩放'],
+    ['Round(360 * $scale)', '宽度按 macOS 横幅基准 360 缩放'],
+    ['Round(84 * $scale)', '高度按 macOS 横幅基准 84 缩放'],
+    ['Round(40 * $scale)', '图标 40×40（macOS 图标位）'],
+    ['GraphicsUnit]::Pixel', '字号用像素单位（DPI 已自己处理，避免二次缩放）'],
+    ['AppsUseLightTheme', '浅色/深色跟随系统外观'],
   ]
   const missing = checks.filter(([needle]) => !script.includes(needle))
   if (ps !== undefined && missing.length === 0) {

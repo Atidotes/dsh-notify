@@ -79,7 +79,8 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 {
   "windowsStyle": "banner",
   "bannerPosition": "topright",
-  "bannerWidth": 380,
+  "bannerWidth": 360,
+  "bannerHeight": 84,
   "bannerDurationMs": 8000
 }
 ```
@@ -88,14 +89,23 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 |---|---|---|
 | `windowsStyle` | `banner`（默认）/ `toast` | `toast` = 系统通知（右下角、进通知中心、可能被专注助手吞） |
 | `bannerPosition` | `topright`（默认）/ `topleft` / `bottomright` / `bottomleft` | 自绘弹出窗的位置 |
-| `bannerWidth` | `380` | 宽度（像素） |
+| `bannerWidth` | `360` | 宽度（96 DPI 下的逻辑像素） |
+| `bannerHeight` | `84` | 高度（96 DPI 下的逻辑像素） |
 | `bannerDurationMs` | `8000` | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
 
 想**强制**走自绘弹出窗（不看 `windowsStyle`、也不依赖默认值），再加一行
 `"backend": "banner"` —— 这样连旧版本插件也会走右上角那条路。
 
-效果：置顶、无边框、圆角、带官方彩色图标 + 标题 + 正文，点击直接打开 DSH，
-自动消失（或点右上角关闭）。它就是「微信式右上角横幅」。
+效果：置顶、无边框的**通知卡片**，点击任意位置打开 DSH，到点自动消失。
+
+外观按 **macOS 通知横幅** 对齐：**360×84**、**40×40** 官方彩色图标（垂直居中）、
+**13px 半粗标题 + 12px 正文**、**16px 圆角**、1px 描边、浅色卡片（**深色主题下自动
+变深色** —— 跟随 Windows 的「应用模式」设置）。
+
+> **关于「弹出窗太大」**：脚本会先声明 **DPI 感知**（`SetProcessDPIAware`）再按
+> `DpiX / 96` 缩放全部尺寸与字号。不做这一步时，150% / 200% 缩放的屏幕上 Windows
+> 会把整个窗口当位图放大 —— 又大又糊，这才是「太大」的根因；同时 `AutoScaleMode`
+> 设为 `None`、字号用像素单位，避免 WinForms 再缩一次。
 
 **为什么默认是它**：系统 Toast 会被**专注助手 / 勿扰 / 通知总开关 / AUMID 未注册**
 静默吞掉 —— 表现就是「Windows 上什么都没弹」，而且插件完全看不出来（命令跑成功了，
@@ -154,7 +164,7 @@ npm run windows-check
   `powershell.exe`（5.1）优先，`windows-check` 第 2 段可以单独验证 Toast 路线。
 
 > ⚠️ 诚实说明：Windows / Linux 后端是按两平台的官方机制实现、并用**参数级单元测试**
-> 覆盖的（58 条冒烟里 10 条专测这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
+> 覆盖的（59 条冒烟里 7 条直接覆盖这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
 > macOS 那条路是真机跑通的；Windows 上出问题就用 `npm run windows-check` 生成的两段
 > 自检脚本（就是插件真正会 spawn 的那两条命令）在真机上单独验。
 
@@ -272,7 +282,8 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 | `openUrl` | `http://127.0.0.1:3080` | 点击通知打开的地址（仅 terminal-notifier 支持） |
 | `windowsStyle` | `banner` | Windows 通知形态：`banner`（自绘弹出窗，不受专注助手影响）或 `toast`（系统通知，进通知中心） |
 | `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
-| `bannerWidth` | `380` | banner 宽度（像素） |
+| `bannerWidth` | `360` | banner 宽度（逻辑像素，对齐 macOS 横幅） |
+| `bannerHeight` | `84` | banner 高度（逻辑像素） |
 | `bannerDurationMs` | `8000` | banner 自动关闭毫秒数；`0` = 一直显示到手动关闭 |
 | `snoretoastCommand` | `SnoreToast.exe` | Windows：SnoreToast 的命令名或绝对路径 |
 | `windowsAppId` | 系统 PowerShell 的 AUMID | Windows：PowerShell Toast 用的 AppUserModelID |
@@ -314,7 +325,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 
 ```bash
 npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE 断言
-npm run smoke                    # host 半逻辑自测（58 条断言：真机 bug 回归 + 跨平台分支）
+npm run smoke                    # host 半逻辑自测（59 条断言：真机 bug 回归 + 跨平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）

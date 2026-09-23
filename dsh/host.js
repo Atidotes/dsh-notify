@@ -110,8 +110,10 @@ const DEFAULT_CONFIG = {
   windowsStyle: 'banner',
   /** banner 模式的位置：topright / topleft / bottomright / bottomleft。 */
   bannerPosition: 'topright',
-  /** banner 模式的宽度（像素）。 */
-  bannerWidth: 380,
+  /** banner 模式的宽度（96 DPI 下的逻辑像素；对齐 macOS 通知横幅 ≈ 360）。 */
+  bannerWidth: 360,
+  /** banner 模式的高度（96 DPI 下的逻辑像素；macOS 两行横幅 ≈ 84）。 */
+  bannerHeight: 84,
   /** banner 模式自动关闭的毫秒数；0 = 一直显示直到点击关闭。 */
   bannerDurationMs: 8_000,
   /** 页面卡片轮询的同源路由。 */
@@ -318,10 +320,17 @@ export function powershellToastScript(title, body, appId, iconPath) {
 }
 
 /**
- * 生成一段 PowerShell 脚本：在屏幕角落画一个置顶的「微信式」横幅小窗。
+ * 生成一段 PowerShell 脚本：在屏幕角落画一个置顶的通知卡片小窗。
  *
  * 为什么需要它：Windows 的系统 Toast 位置由系统固定（右下角），微软明确表示没有
  * 提供修改位置的设置；SnoreToast 也没有位置参数。想放到右上角，只能自己画窗口。
+ *
+ * 外观对齐 macOS 通知横幅：宽度 360、高度 84、40×40 应用图标、13px 半粗标题 +
+ * 12px 正文、16px 圆角浅色卡片、跟随系统浅色/深色外观、1px 描边。
+ *
+ * **DPI**：不调 `SetProcessDPIAware` 时，Windows 在 150% / 200% 缩放的屏幕上会把整个
+ * 窗口当位图放大 —— 又大又糊（这是「弹出窗太大」的真正原因）。所以脚本先声明 DPI
+ * 感知，再按 `DpiX / 96` 缩放全部尺寸与字号（字号用 Pixel 单位，避免二次缩放）。
  *
  * 代价（必须说清楚）：它**不是系统通知** —— 不进「通知中心」、不受专注助手管理，
  * 也不会被错过后的历史列表记住。这是**默认形态**：系统 Toast 会被专注助手 / 通知
@@ -331,11 +340,12 @@ export function powershellToastScript(title, body, appId, iconPath) {
 export function powershellBannerScript(options) {
   const q = (text) => `'${String(text).replaceAll("'", "''")}'`
   const margin = 16
-  const height = options.height
+  const width = Math.round(options.width)
+  const height = Math.round(options.height)
   const atLeft = options.position === 'topleft' || options.position === 'bottomleft'
   const atBottom = options.position === 'bottomleft' || options.position === 'bottomright'
-  const leftExpr = atLeft ? `$wa.Left + ${margin}` : `$wa.Right - $form.Width - ${margin}`
-  const topExpr = atBottom ? `$wa.Bottom - $form.Height - ${margin}` : `$wa.Top + ${margin}`
+  const leftExpr = atLeft ? '$wa.Left + $m' : '$wa.Right - $form.Width - $m'
+  const topExpr = atBottom ? '$wa.Bottom - $form.Height - $m' : '$wa.Top + $m'
   const openUrl = typeof options.openUrl === 'string' && options.openUrl !== '' ? options.openUrl : ''
   const click = openUrl === '' ? '' : [
     `$onClick = { Start-Process ${q(openUrl)}; $form.Close() }`,
@@ -343,24 +353,48 @@ export function powershellBannerScript(options) {
     '$body.Add_Click($onClick); $pic.Add_Click($onClick)',
   ].join('; ')
   const autoClose = options.durationMs > 0
+    // 时长是时间，不跟着 DPI 缩放。
     ? `$timer = New-Object System.Windows.Forms.Timer; $timer.Interval = ${Math.round(options.durationMs)}`
       + '; $timer.Add_Tick({ $form.Close() }); $timer.Start()'
     : ''
+  /** 把 96 DPI 下的基准尺寸换算成当前屏幕的像素。 */
+  const px = (base) => `[int][Math]::Round(${base} * $scale)`
   return wrapPowerShell([
     'Add-Type -AssemblyName System.Windows.Forms',
     'Add-Type -AssemblyName System.Drawing',
+    // DPI 感知：不做这一步，缩放屏上整窗会被位图放大（又大又糊）
+    "try { Add-Type -Namespace Dsh -Name Dpi -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();' } catch { }",
+    'try { [Dsh.Dpi]::SetProcessDPIAware() | Out-Null } catch { }',
     '[System.Windows.Forms.Application]::EnableVisualStyles()',
+    '$scale = 1.0',
+    'try { $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); if ($g.DpiX -gt 0) { $scale = [Math]::Round($g.DpiX / 96.0, 2) }; $g.Dispose() } catch { }',
+    'if ($scale -le 0.5 -or $scale -gt 4) { $scale = 1.0 }',
+    // 版式基准（96 DPI）：360×84、12px 内边距、40×40 图标、13/12px 文字 —— 对齐 macOS 横幅
+    `$W = ${px(width)}; $H = ${px(height)}`,
+    `$m = ${px(margin)}; $r = ${px(16)}; $pad = ${px(12)}; $icon = ${px(40)}; $gap = ${px(12)}`,
+    `$titleTop = ${px(13)}; $titleH = ${px(18)}; $bodyTop = ${px(34)}`,
+    `$bodyH = $H - $bodyTop - ${px(12)}`,
+    // 浅色/深色跟随 Windows 应用主题（macOS 通知也跟随系统外观）
+    '$light = 1',
+    "try { $light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme } catch { }",
+    'if ($null -eq $light) { $light = 1 }',
+    '$bg = if ($light -eq 1) { [System.Drawing.Color]::FromArgb(248, 248, 250) } else { [System.Drawing.Color]::FromArgb(44, 44, 46) }',
+    '$fg = if ($light -eq 1) { [System.Drawing.Color]::FromArgb(29, 29, 31) } else { [System.Drawing.Color]::White }',
+    '$muted = if ($light -eq 1) { [System.Drawing.Color]::FromArgb(92, 92, 98) } else { [System.Drawing.Color]::FromArgb(199, 199, 204) }',
+    '$lineColor = if ($light -eq 1) { [System.Drawing.Color]::FromArgb(28, 0, 0, 0) } else { [System.Drawing.Color]::FromArgb(38, 255, 255, 255) }',
     '$form = New-Object System.Windows.Forms.Form',
     "$form.FormBorderStyle = 'None'",
     "$form.StartPosition = 'Manual'",
+    // 自己按 DPI 缩放，禁止 WinForms 再缩一次（否则又是「太大」）
+    "$form.AutoScaleMode = 'None'",
     '$form.TopMost = $true',
     '$form.ShowInTaskbar = $false',
-    '$form.BackColor = [System.Drawing.Color]::FromArgb(28, 30, 34)',
-    `$form.Width = ${Math.round(options.width)}; $form.Height = ${height}`,
+    '$form.BackColor = $bg',
+    '$form.Width = $W; $form.Height = $H',
     '$wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea',
     `$form.Left = ${leftExpr}; $form.Top = ${topExpr}`,
     '$pic = New-Object System.Windows.Forms.PictureBox',
-    '$pic.SizeMode = "Zoom"; $pic.Left = 14; $pic.Top = 16; $pic.Width = 64; $pic.Height = 64',
+    '$pic.SizeMode = "Zoom"; $pic.Left = $pad; $pic.Top = [int][Math]::Round(($H - $icon) / 2); $pic.Width = $icon; $pic.Height = $icon',
     typeof options.iconPath === 'string' && options.iconPath !== ''
       // 图标读不出来只降级（警告进 stderr → diag.lastStderr）：横幅本身必须照弹。
       ? `try { $pic.Image = [System.Drawing.Image]::FromFile(${q(options.iconPath)}) }`
@@ -368,22 +402,24 @@ export function powershellBannerScript(options) {
     '$form.Controls.Add($pic)',
     '$title = New-Object System.Windows.Forms.Label',
     `$title.Text = ${q(options.title)}`,
-    '$title.ForeColor = [System.Drawing.Color]::White',
-    '$title.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)',
-    '$title.Left = 90; $title.Top = 16; $title.Width = $form.Width - 104; $title.Height = 24',
+    '$title.ForeColor = $fg',
+    // 字号用 Pixel：DPI 已由 $scale 处理，避免 WinForms 再按点数缩一次
+    "$title.Font = New-Object System.Drawing.Font('Segoe UI', [float](13 * $scale), [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)",
+    '$title.Left = $pad + $icon + $gap; $title.Top = $titleTop; $title.Width = $W - $title.Left - $pad; $title.Height = $titleH',
+    '$title.AutoEllipsis = $true',
     '$form.Controls.Add($title)',
     '$body = New-Object System.Windows.Forms.Label',
     `$body.Text = ${q(options.body)}`,
-    '$body.ForeColor = [System.Drawing.Color]::FromArgb(200, 206, 214)',
-    '$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
-    '$body.Left = 90; $body.Top = 44; $body.Width = $form.Width - 104; $body.Height = 40',
+    '$body.ForeColor = $muted',
+    "$body.Font = New-Object System.Drawing.Font('Segoe UI', [float](12 * $scale), [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)",
+    '$body.Left = $title.Left; $body.Top = $bodyTop; $body.Width = $title.Width; $body.Height = $bodyH',
     '$form.Controls.Add($body)',
-    // 圆角
+    // 16px 圆角 + 1px 描边：macOS 通知卡片的形状
     '$path = New-Object System.Drawing.Drawing2D.GraphicsPath',
-    '$r = 12; $w = $form.Width; $h = $form.Height',
-    '$path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($w - $r, 0, $r, $r, 270, 90)',
-    '$path.AddArc($w - $r, $h - $r, $r, $r, 0, 90); $path.AddArc(0, $h - $r, $r, $r, 90, 90)',
+    '$path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($W - $r, 0, $r, $r, 270, 90)',
+    '$path.AddArc($W - $r, $H - $r, $r, $r, 0, 90); $path.AddArc(0, $H - $r, $r, $r, 90, 90)',
     '$path.CloseFigure(); $form.Region = New-Object System.Drawing.Region($path)',
+    '$form.Add_Paint({ param($sender, $e) $pen = New-Object System.Drawing.Pen($lineColor, 1); $e.Graphics.SmoothingMode = "AntiAlias"; $e.Graphics.DrawPath($pen, $path); $pen.Dispose() })',
     click,
     autoClose,
     '$form.ShowDialog() | Out-Null',
@@ -1218,7 +1254,7 @@ export function apply(ctx, config = {}) {
             iconPath,
             position: cfg.bannerPosition,
             width: cfg.bannerWidth,
-            height: 96,
+            height: cfg.bannerHeight,
             durationMs: cfg.bannerDurationMs,
             openUrl: cfg.openUrl,
           }),
