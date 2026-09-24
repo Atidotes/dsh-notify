@@ -192,7 +192,9 @@ window.__ModuleLoader__.load({
       try {
         if (!item || typeof item !== 'object') return
         if (item.kind === 'status') {
-          if (typeof item.backend === 'string') {
+          // 'unresolved' = 宿主还在探测：不要用它覆盖已知结论（否则会把 'none' 抹掉，
+          // 该用浏览器兜底时反而不兜底）
+          if (typeof item.backend === 'string' && item.backend !== 'unresolved') {
             store.hostBackend = item.backend
             updateHint()
           }
@@ -235,8 +237,11 @@ window.__ModuleLoader__.load({
       if (document.querySelector(`style[data-plugin-css="${CSS_ID}"]`) !== null) return
       const tag = document.createElement('style')
       tag.dataset.pluginCss = CSS_ID
+      // 模块系统按 data-plugin 归属样式（HMR 换代时清理、避免被别的插件 claimStyles 收走）
+      tag.dataset.plugin = 'dsh-notify'
       tag.textContent = CSS
       document.head.appendChild(tag)
+      return tag
     }
 
     function startFeed() {
@@ -440,6 +445,32 @@ window.__ModuleLoader__.load({
       return values
     }
 
+    /**
+     * 数值字段的边界，与 dsh/host.js 的 Config schema 一一对应。
+     * 客户端先校验：改到超范围当场标红，而不是等宿主整批拒绝、只回一句"保存失败"。
+     */
+    const NUMBER_LIMITS = {
+      minRunMs: { min: 0, max: 86_400_000, step: 500 },
+      remindEveryMs: { min: 0, max: 86_400_000, step: 1_000 },
+      maxReminders: { min: 0, max: 1_000, step: 1 },
+      snippetChars: { min: 0, max: 120, step: 1 },
+      bannerWidth: { min: 160, max: 1_200, step: 10 },
+      bannerMinWidth: { min: 120, max: 1_200, step: 10 },
+      bannerRadius: { min: 0, max: 200, step: 1 },
+      bannerHeight: { min: 0, max: 400, step: 1 },
+      bannerDurationMs: { min: 0, max: 60_000, step: 500 },
+    }
+
+    /** 校验一个草稿值；返回错误文案的词典键，undefined 表示合法。 */
+    function invalidReason(key, kind, value) {
+      if (kind !== 'number') return undefined
+      if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) return 'invalidNumber'
+      const limit = NUMBER_LIMITS[key]
+      if (limit === undefined) return undefined
+      if (value < limit.min || value > limit.max) return 'invalidRange'
+      return undefined
+    }
+
     /** 当前平台上可见的字段。 */
     function fieldsForPlatform(platform) {
       return CONFIG_FIELDS.filter((spec) => matchesPlatform(spec, platform))
@@ -511,6 +542,7 @@ window.__ModuleLoader__.load({
       'save': '保存', 'saving': '保存中…', 'discard': '放弃修改',
       'reset': '重置', 'overridden': '已自定义',
       'saveFailed': '保存失败，请重试', 'readOnly': '当前连接不可写', 'loading': '正在读取配置…',
+      'invalidNumber': '请填整数', 'invalidRange': '超出允许范围', 'invalidFields': '有字段不合法，先改好再保存',
       'unavailableRemote': '配置只能在通过本机地址（127.0.0.1 / localhost）打开的页面里修改 —— 当前页面不是本机地址。',
       'unavailableHost': '暂时读不到配置：插件宿主可能还在跑旧模块，完全重启 DSH 后刷新页面再试。',
       'dirty': '有未保存的修改',
@@ -579,6 +611,7 @@ window.__ModuleLoader__.load({
       'save': 'Save', 'saving': 'Saving…', 'discard': 'Discard',
       'reset': 'Reset', 'overridden': 'Customized',
       'saveFailed': 'Save failed, please retry', 'readOnly': 'This connection is read-only', 'loading': 'Loading configuration…',
+      'invalidNumber': 'Enter a whole number', 'invalidRange': 'Out of the allowed range', 'invalidFields': 'Some fields are invalid — fix them before saving',
       'unavailableRemote': 'Configuration can only be edited from a page opened on this machine (127.0.0.1 / localhost).',
       'unavailableHost': 'Configuration is not readable yet: the plugin host may still run the old module — restart DSH and refresh.',
       'dirty': 'Unsaved changes',
@@ -604,93 +637,94 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 一行的草稿 diff：只提交改动过的键。
-     * @returns 变更键数组
+     * 草稿：只记录用户真正动过的键（稀疏），值为一个 op：`{ op: 'set', value }` 或 `{ op: 'unset' }`。
+     *
+     * 为什么稀疏：整段拷贝 + 全字段 diff 会把「别的窗口 / 另一个设置页刚改过的值」当成自己的
+     * 编辑，保存时覆盖回去（review 里复现过）。只提交自己动过的键，再用打开草稿时的 revision
+     * 兜底：期间宿主被别处改过就整批拒绝，而不是盲写。
      */
-    function changedKeys(draft, current) {
-      if (draft === null || draft === undefined) return []
-      const keys = new Set([...Object.keys(draft), ...Object.keys(current ?? {})])
-      const out = []
-      for (const key of keys) {
-        const before = current?.[key]
-        const after = draft[key]
-        if (after === undefined) continue
-        if (before !== after) out.push(key)
-      }
-      return out
+    function draftValue(key, draft, current, base) {
+      const entry = draft?.[key]
+      if (entry === undefined) return current?.[key]
+      if (entry.op === 'unset') return base?.[key] ?? current?.[key]
+      return entry.value
     }
 
-    /** 一行的取值：草稿优先，其次宿主值。 */
-    function fieldValue(key, draft, current) {
-      if (draft !== null && draft !== undefined && Object.hasOwn(draft, key)) return draft[key]
-      return current?.[key]
+    /** 草稿 → 宿主的 path ops：一次 mutate 提交（原子，只写一次 patch 文件、只重探测一次通道）。 */
+    function draftOps(draft) {
+      return Object.entries(draft ?? {}).map(([key, entry]) => (
+        entry.op === 'unset' ? { op: 'unset', path: [key] } : { op: 'set', path: [key], value: entry.value }
+      ))
     }
 
-    /** 字段控件：布尔用开关、枚举用下拉、数字/文本用输入框。 */
+    /** 字段控件：布尔用开关、枚举用下拉、数字/文本用输入框；带 id/htmlFor 与字段级错误。 */
     function Field(props) {
-      const { spec, value, disabled, overridden, t } = props
+      const { spec, value, disabled, overridden, t, invalid } = props
       const label = t(`f.${spec.key}`)
       const hint = t(`h.${spec.key}`)
+      const inputId = `dsn-cfg-${spec.key}`
       let control
       if (spec.kind === 'boolean') {
         control = h('input', {
-          type: 'checkbox', className: 'dsn-cfg-check', checked: value === true, disabled,
+          id: inputId, type: 'checkbox', className: 'dsn-cfg-check', checked: value === true, disabled,
           onChange: (event) => props.onEdit(event.target.checked),
         })
       } else if (spec.kind === 'enum') {
         control = h('div', { className: 'dsn-cfg-selectwrap' },
           h('select', {
-            className: 'dsn-cfg-select',
+            id: inputId, className: 'dsn-cfg-select',
             value: value === undefined || value === null ? '' : String(value), disabled,
             onChange: (event) => props.onEdit(event.target.value),
           }, (props.options ?? spec.values ?? []).map((option) => h('option', { key: option, value: option },
             t(`v.${spec.key}.${option}`)))))
       } else if (spec.kind === 'number') {
-        // 普通文本框（type=number 会带原生上下箭头，样式不好看也难统一）
+        // 普通文本框（type=number 会带原生上下箭头，样式难统一）；边界见 NUMBER_LIMITS
+        const limit = props.limit ?? {}
         control = h('input', {
-          type: 'text', inputMode: 'numeric', autoComplete: 'off', spellCheck: false,
+          id: inputId, type: 'text', inputMode: 'numeric', autoComplete: 'off', spellCheck: false,
           value: value === undefined || value === null ? '' : String(value), disabled,
+          'aria-invalid': invalid !== undefined ? 'true' : undefined,
           onChange: (event) => {
-            const text = event.target.value
-            // 清空 = 回到默认层（否则会出现"输入框空了但什么都没改"的怪状态）
-            if (text === '') props.onEdit(props.baseValue)
-            else if (/^\d+$/.test(text.trim())) props.onEdit(Number(text.trim()))
+            const text = event.target.value.trim()
+            // 清空 = 回到默认层（排一个 unset op，跟随保存/放弃，而不是立刻写宿主）
+            if (text === '') props.onReset()
+            else if (/^\d+$/.test(text)) props.onEdit(Number(text))
           },
         })
       } else {
         control = h('input', {
-          type: 'text', value: value === undefined || value === null ? '' : String(value), disabled,
+          id: inputId, type: 'text', autoComplete: 'off', spellCheck: false,
+          value: value === undefined || value === null ? '' : String(value), disabled,
           onChange: (event) => props.onEdit(event.target.value),
         })
       }
-      if (spec.kind === 'boolean') {
-        return h('div', { className: 'dsn-cfg-field' },
-          h('label', { className: 'dsn-cfg-switch' }, control, h('span', null, label),
-            overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null),
-          hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint),
-          overridden
-            ? h('button', { type: 'button', className: 'dsn-cfg-reset', disabled, onClick: () => props.onReset() }, t('reset'))
-            : null,
-        )
-      }
+      const reset = h('button', {
+        type: 'button', className: 'dsn-cfg-reset', disabled,
+        'aria-label': `${t('reset')}：${label}`,
+        onClick: () => props.onReset(),
+      }, t('reset'))
       return h('div', { className: 'dsn-cfg-field' },
-        h('label', null, h('span', null, label),
-          overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null),
-        control,
-        hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint),
-        overridden
-          ? h('button', { type: 'button', className: 'dsn-cfg-reset', disabled, onClick: () => props.onReset() }, t('reset'))
-          : null,
+        spec.kind === 'boolean'
+          ? h('label', { className: 'dsn-cfg-switch', htmlFor: inputId },
+              control, h('span', null, label),
+              overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null)
+          : h('label', { htmlFor: inputId }, h('span', null, label),
+              overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null),
+        spec.kind === 'boolean' ? null : control,
+        invalid !== undefined
+          ? h('span', { className: 'dsn-cfg-error' }, t(invalid))
+          : (hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint)),
+        overridden ? reset : null,
       )
     }
 
     /** 配置卡：Plugins → dsh-notify → 配置。 */
     function ConfigCard(props) {
-      const { t, form, view } = props
+      const { t, configForm, view } = props
       const snapshot = React.useSyncExternalStore(
-        React.useCallback((listener) => form.subscribe(listener), [form]),
-        () => form.getSnapshot(),
-        () => form.getSnapshot(),
+        React.useCallback((listener) => configForm.subscribe(listener), [configForm]),
+        () => configForm.getSnapshot(),
+        () => configForm.getSnapshot(),
       )
       const platform = React.useSyncExternalStore(
         React.useCallback((listener) => subscribeHostPlatform(listener), []),
@@ -698,54 +732,59 @@ window.__ModuleLoader__.load({
         getHostPlatform,
       )
       const [draft, setDraft] = React.useState(null)
+      const [draftRevision, setDraftRevision] = React.useState(undefined)
       const [saving, setSaving] = React.useState(false)
       const [failed, setFailed] = React.useState(false)
       const [showAll, setShowAll] = React.useState(readShowAll)
       if (view !== 'page') return null
-      const current = snapshot.value ?? {}
-      const user = snapshot.user ?? {}
-      const pending = changedKeys(draft, current)
-      const writable = snapshot.writable === true
-      const disabled = !writable || saving
 
-      const edit = (key, value) => {
-        setFailed(false)
-        setDraft((previous) => Object.assign({}, previous === null ? current : previous, { [key]: value }))
-      }
-      const resetField = async (key) => {
+      const current = snapshot.value ?? {}
+      const base = snapshot.base ?? {}
+      const user = snapshot.user ?? {}
+      const entryKeys = Object.keys(draft ?? {})
+      const writable = snapshot.writable === true
+      const busy = !writable || saving
+
+      /** 开始一次草稿：记住当时的 revision，保存时用它做冲突栅栏。 */
+      const stage = (key, entry) => {
         setFailed(false)
         setDraft((previous) => {
-          if (previous === null) return previous
-          const next = Object.assign({}, previous)
-          delete next[key]
-          return next
+          if (previous === null) setDraftRevision(snapshot.revision)
+          return Object.assign({}, previous ?? {}, { [key]: entry })
         })
-        try {
-          const ok = await form.unset(key)
-          if (!ok) setFailed(true)
-        } catch (error) {
-          console.error('[dsh-notify] 重置配置失败', error)
-          setFailed(true)
-        }
       }
+      const edit = (key, spec, value) => stage(key, { op: 'set', value })
+      const resetField = (key) => stage(key, { op: 'unset' })
+
+      const invalidKeys = {}
+      for (const spec of CONFIG_FIELDS) {
+        const entry = draft?.[spec.key]
+        if (entry === undefined || entry.op === 'unset') continue
+        const reason = invalidReason(spec.key, spec.kind, entry.value)
+        if (reason !== undefined) invalidKeys[spec.key] = reason
+      }
+      const invalidCount = Object.keys(invalidKeys).length
+      const dirty = entryKeys.length > 0
+
       const save = async () => {
-        if (pending.length === 0 || saving) return
+        if (!dirty || invalidCount > 0 || saving) return
         setSaving(true)
         setFailed(false)
-        let ok = true
-        for (const key of pending) {
-          const value = fieldValue(key, draft, current)
-          try {
-            const accepted = await form.set(key, value)
-            if (!accepted) ok = false
-          } catch (error) {
-            console.error('[dsh-notify] 保存配置失败', error)
-            ok = false
+        try {
+          // 一次 mutate 提交全部改动：原子、一个 revision 栅栏、一次 patch 写盘、一次通道重探测
+          const accepted = await configForm.mutate(draftOps(draft), draftRevision)
+          if (accepted) {
+            setDraft(null)
+            setDraftRevision(undefined)
+          } else {
+            setFailed(true)
           }
+        } catch (error) {
+          console.error('[dsh-notify] 保存配置失败', error)
+          setFailed(true)
+        } finally {
+          setSaving(false)
         }
-        setSaving(false)
-        if (ok) setDraft(null)
-        else setFailed(true)
       }
 
       if (snapshot.status === 'unavailable') {
@@ -753,8 +792,7 @@ window.__ModuleLoader__.load({
       }
       if (snapshot.status === 'loading' && snapshot.value === undefined) return h('p', { className: 'dsn-cfg-note' }, t('loading'))
 
-      // 默认只显示当前宿主平台上真实存在的字段 / 分组（Windows 专属那一组在 macOS 上整组不出现）；
-      // 打开顶部开关后可以看到并预配置其它平台的字段（它们在其它的平台上才会生效）。
+      // 默认只显示当前宿主平台上真实存在的字段 / 分组；打开顶部开关后可预配置其它平台的字段。
       const effective = showAll ? undefined : platform
       const visible = showAll ? CONFIG_FIELDS : fieldsForPlatform(platform)
       const groups = CONFIG_GROUPS
@@ -781,24 +819,33 @@ window.__ModuleLoader__.load({
                 key: spec.key,
                 spec,
                 t,
-                disabled,
-                options: spec.kind === 'enum' ? optionsFor(spec, effective, fieldValue(spec.key, draft, current)) : undefined,
-                value: fieldValue(spec.key, draft, current),
-                baseValue: snapshot.base?.[spec.key],
-                overridden: Object.hasOwn(user, spec.key),
-                onEdit: (value) => edit(spec.key, value),
-                onReset: () => { void resetField(spec.key) },
+                disabled: busy,
+                limit: NUMBER_LIMITS[spec.key],
+                options: spec.kind === 'enum' ? optionsFor(spec, effective, draftValue(spec.key, draft, current, base)) : undefined,
+                value: draftValue(spec.key, draft, current, base),
+                overridden: draft?.[spec.key] !== undefined || Object.hasOwn(user, spec.key),
+                invalid: invalidKeys[spec.key],
+                onEdit: (value) => edit(spec.key, spec, value),
+                onReset: () => resetField(spec.key),
               })),
             ),
           )),
         ),
         h('div', { className: 'dsn-cfg-foot' },
-          h('button', { type: 'button', className: 'dsn-cfg-btn', disabled: disabled || pending.length === 0, onClick: () => { void save() } },
-            saving ? t('saving') : t('save')),
-          h('button', { type: 'button', className: 'dsn-cfg-btn ghost', disabled: !writable || saving || draft === null, onClick: () => { setDraft(null); setFailed(false) } }, t('discard')),
+          h('button', {
+            type: 'button', className: 'dsn-cfg-btn',
+            disabled: busy || !dirty || invalidCount > 0,
+            onClick: () => { void save() },
+          }, saving ? t('saving') : t('save')),
+          h('button', {
+            type: 'button', className: 'dsn-cfg-btn ghost',
+            disabled: !writable || saving || !dirty,
+            onClick: () => { setDraft(null); setDraftRevision(undefined); setFailed(false) },
+          }, t('discard')),
           !writable ? h('span', { className: 'dsn-cfg-note' }, t('readOnly')) : null,
-          draft !== null && pending.length > 0 ? h('span', { className: 'dsn-cfg-note' }, t('dirty')) : null,
-          failed ? h('span', { className: 'dsn-cfg-error' }, t('saveFailed')) : null,
+          dirty ? h('span', { className: 'dsn-cfg-note' }, t('dirty')) : null,
+          invalidCount > 0 ? h('span', { className: 'dsn-cfg-error' }, t('invalidFields')) : null,
+          failed ? h('span', { className: 'dsn-cfg-error', role: 'alert' }, t('saveFailed')) : null,
         ),
       )
     }
@@ -818,7 +865,7 @@ window.__ModuleLoader__.load({
         name: 'plugins.bundle.config',
         key: CONFIG_NS,
         locale: CONFIG_NS,
-        inject: () => ({ form }),
+        inject: () => ({ configForm: form }),
       }, ConfigCard))
     }
 
@@ -861,8 +908,9 @@ window.__ModuleLoader__.load({
 
     /** 供 node 侧测试读取（浏览器里不用）。 */
     const internals = {
-      CONFIG_FIELDS, CONFIG_GROUPS, CONFIG_ZH, CONFIG_EN, changedKeys, fieldValue,
+      CONFIG_FIELDS, CONFIG_GROUPS, CONFIG_ZH, CONFIG_EN, NUMBER_LIMITS,
       matchesPlatform, fieldsForPlatform, optionsFor, BACKEND_BY_PLATFORM,
+      draftValue, draftOps, invalidReason,
     }
 
     return { inject: [], apply, internals }

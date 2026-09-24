@@ -36,7 +36,7 @@ npm run preview    # 把三种通知的实际文案原样打出来
 | 专注助手 / 勿扰 | 遵守（系统级） | `banner` 不受影响；`toast` 会被吞 | 遵守（系统级） |
 | 浏览器兜底通知 | ✅ | ✅ | ✅ |
 | 页面内卡片 | 已按需求移除 | — | — |
-| 通知点击跳转 | 需 `terminal-notifier` | ❌ | ❌ |
+| 通知点击跳转 | 需 `terminal-notifier` | ✅（`banner` 模式，点整张卡片） | ❌ |
 
 ### 图标：三个平台都支持官方彩色图标
 
@@ -45,7 +45,7 @@ npm run preview    # 把三种通知的实际文案原样打出来
 | macOS | 自建 Swift app 的 **app bundle 图标** | 通知左侧图标位（你截图里的位置） |
 | Windows + PowerShell | Toast XML 的 **`appLogoOverride`** | 通知左侧图标位 —— 与 macOS 对齐 |
 | Windows + SnoreToast | `-p <png>` | 通知**内部**的图片区（位置随模板/版本略有差异） |
-| Windows + `banner` 模式 | 自绘窗口里的 `PictureBox` | 横幅左侧，64×64（**位置/尺寸完全可控**） |
+| Windows + `banner` 模式 | 自绘窗口里的 `PictureBox` | 横幅左侧，38×38（**位置/尺寸完全可控**） |
 | Linux | `notify-send -i <png 绝对路径>` | 通知图标位（GNOME / KDE / dunst 都是这个槽） |
 
 Windows 的 toast 图片有平台限制：**≤ 1024×1024、≤ 200 KB、必须是本地 `file://` URI** ——
@@ -56,7 +56,7 @@ Windows 的 toast 图片有平台限制：**≤ 1024×1024、≤ 200 KB、必须
 
 ### Linux（开箱即用）
 
-装了 libnotify 即可，插件自动检测（`notify-send` 不在 PATH 时退回 `command`）：
+装了 libnotify 即可，插件自动检测（`notify-send` 不在 PATH 时按 `backend` 回退：默认 auto，配了 `command` 模板才会走自定义命令）：
 
 ```bash
 sudo apt install libnotify-bin     # Debian/Ubuntu
@@ -74,48 +74,28 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 
 ### Windows 弹出窗的配置与外观
 
+**这些键都在配置卡里**（Plugins → 消息通知 → Windows 弹出窗外观 / 提醒类型），
+写在 `config.json` 里**不生效**（GUI 管理的键会忽略文件值，见 [配置](#配置)）：
 
-
-配置文件：`~/.dsh/dsh-notify/config.json`（Windows：`%USERPROFILE%\.dsh\dsh-notify\config.json`）。
-**必须是严格 JSON —— 不能带注释**，带注释会解析失败、整个文件被忽略（回退到默认值）。
-
-```json
-{
-  "windowsStyle": "banner",
-  "bannerPosition": "topright",
-  "bannerWidth": 350,
-  "bannerMinWidth": 310,
-  "bannerRadius": 40,
-  "bannerDurationMs": 8000
-}
-```
-
-| 键 | 可取值 | 说明 |
+| 卡片里的项 | 默认 | 说明 |
 |---|---|---|
-| `windowsStyle` | `banner`（默认）/ `toast` | `toast` = 系统通知（右下角、进通知中心、可能被专注助手吞） |
-| `bannerPosition` | `topright`（默认）/ `topleft` / `bottomright` / `bottomleft` | 自绘弹出窗的位置 |
-| `bannerWidth` | `350` | 宽度**上限**（96 DPI 下的逻辑像素）：卡片会按标题/正文自己收窄，不留一截空白 |
-| `bannerMinWidth` | `310` | 宽度**下限**；把上下限设成同一个值 = 钉死宽度 |
-| `bannerRadius` | `40` | 圆角半径（越大越圆）；自动夹在卡片高度的一半（= 胶囊形）以内 |
-| `bannerHeight` | `0`（= 自适应） | 高度：**默认按正文行数自适应**（单行 ≈ 49、两行 ≈ 64），不留白；填正数则固定高度 |
-| `bannerDurationMs` | `8000` | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
-
-> ⚠️ 早前版本把 `bannerHeight` 默认成了 `84`。如果你当时照着写进过 `config.json`，
-> **把那一行删掉（或设成 `0`）**，否则会钉死在 84 —— 正是「高度太高、留白太多」的来源。
-
-想**强制**走自绘弹出窗（不看 `windowsStyle`、也不依赖默认值），再加一行
-`"backend": "banner"` —— 这样连旧版本插件也会走右上角那条路。
+| Windows 提醒形态 | 自绘弹出窗 | `系统通知` = 右下角 Toast：进通知中心，但可能被专注助手吞掉 |
+| 位置 | 右上角 | 自绘窗贴屏幕的哪个角 |
+| 最大 / 最小宽度 | 350 / 310 | 卡片按标题/正文自己收窄；两者设成同一个值 = 钉死宽度 |
+| 圆角 | 40 | 越大越圆，自动夹在卡片高度的一半（= 胶囊形）以内 |
+| 高度 | 0（自适应） | 按正文行数自适应（单行 ≈ 56、两行 ≈ 72）；填正数固定高度 |
+| 停留时长 | 8000 | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
 
 效果：置顶、无边框的**通知卡片**，点击任意位置打开 DSH，到点自动消失。
 
 外观按 **macOS 通知横幅** 对齐，并且**四周都不留空白**：**宽度按标题/正文里更长的那条量出来**
 （默认 **310–350** 之间；正文右侧另留 16px 呼吸位，长提问最多 350 后换行）、**高度 = 标题 + 正文 +
-底部 5px**（用 `TextRenderer.MeasureText` 量正文真实行高，单行 ≈ **49**、两行 ≈ **64**；
-测量带 `NoPadding`，否则默认测量值里的边框留白会让卡片凭空高几像素）、**34×34** 官方
+底部 9px**（用 `TextRenderer.MeasureText` 量正文真实行高，单行 ≈ **56**、两行 ≈ **72**；
+测量带 `NoPadding`，否则默认测量值里的边框留白会让卡片凭空高几像素）、**38×38** 官方
 彩色图标（垂直居中）、**13px 半粗标题 + 12px 正文**、左内边距 10px / 右 16px、**圆角取满（胶囊）**、
 1px 描边、浅色卡片（**深色主题下自动变深色** —— 跟随 Windows 的「应用模式」设置）。
 
-> 卡片实际几何会写进 stderr（形如 `dsh-notify 卡片 360x49（正文 16px / scale 1）`），
+> 卡片实际几何会写进 stderr（形如 `dsh-notify 卡片 350x56（正文 16px / scale 1）`），
 > 在 `diag.lastStderr` 里能看到 —— 觉得还高/还矮时，把这个数字发出来即可。
 
 > **关于「弹出窗太大 / 留白太多 / 太长 / 太短 / 不够圆」**：宽度贴着内容（310–350）、高度按正文
@@ -183,7 +163,7 @@ npm run windows-check
 ```
 
 把输出里的第 1 段整条粘进 **Windows PowerShell 5.1**（不是 PowerShell 7）回车：
-右上角出现深色小窗 = 命令层面完全没问题，剩下的只是插件侧（装没装 / 重启没重启）。
+右上角出现浅色/深色圆角卡片 = 命令层面完全没问题，剩下的只是插件侧（装没装 / 重启没重启）。
 
 ```text
 ③ 仍然什么都没有 → 就差这一步
@@ -195,11 +175,11 @@ npm run windows-check
   `powershell.exe`（5.1）优先，`windows-check` 第 2 段可以单独验证 Toast 路线。
 
 > ⚠️ 诚实说明：Windows / Linux 后端是按两平台的官方机制实现、并用**参数级单元测试**
-> 覆盖的（88 条冒烟里 25 条覆盖 Windows / Linux / 平台分支），但我手上没有 Windows/Linux 机器做真机验证。
+> 覆盖的（冒烟用例里有相当一部分专测 Windows / Linux 与平台分支），但我手上没有 Windows/Linux 机器做真机验证。
 > macOS 那条路是真机跑通的；Windows 上出问题就用 `npm run windows-check` 生成的两段
 > 自检脚本（就是插件真正会 spawn 的那两条命令）在真机上单独验。
 
-### 自定义命令（任意平台）
+## 自定义命令（任意平台）
 
 `backend: 'command'` + `command` 模板，占位符 `{title}` `{subtitle}` `{body}` `{app}` `{icon}`：
 
@@ -208,7 +188,7 @@ npm run windows-check
   "command": ["notify-send", "-a", "{app}", "-i", "{icon}", "{title}", "{body}"] }
 ```
 
-### 两类图标，别混
+## 两类图标，别混
 
 | | 用什么 | 哪里看得到 |
 |---|---|---|
@@ -222,11 +202,15 @@ npm run windows-check
 ## 安装
 
 ```bash
-# 用 harness 的 plugin_manager：
-#   action: install_bundle, target: /Users/you/work/deepseek/deepseek-plugin/dsh-notify
-# 或命令行：
-dsh plugin --profile web add /Users/you/work/deepseek/deepseek-plugin/dsh-notify
+# 方式 A：从 GitHub 装（各平台通用，Windows 那台就是这么装的）
+dsh plugin --profile web add github:Atidotes/dsh-notify
+# 方式 B：从本地 checkout 装（开发时用；<path-to-checkout> 换成你的路径）
+dsh plugin --profile web add "$PWD"
 ```
+
+> Windows 上用方式 A：`dsh plugin --profile web add github:Atidotes/dsh-notify`
+>（或让 DSH 自己装：插件管理器里填同一个 spec）。git 依赖会跟着 HEAD 走，
+> **改动推上去 + 重装 + 完全重启 DSH** 才会生效。
 
 安装后 profile 的 `dsh.profile.bundles` 会多出 `dsh-notify`，`cordis.patch.yml` 自动生效，无需手改 profile。
 
@@ -329,12 +313,16 @@ linux: auto/notify-send）。平台还没识别出来时只显示跨平台字段
 默认值写在 `dsh/host.js` 的 `DEFAULT_CONFIG` 里，也可以用**外部配置文件**覆盖（不改代码、各平台一致）：
 
 ```json
-{ "remindEveryMs": 60000, "titleFrom": "project",
-  "backend": "command",
-  "command": ["notify-send", "-a", "{app}", "-i", "{icon}", "{title}", "{body}"] }
+{
+  "appName": "DeepSeek Harness",
+  "command": ["notify-send", "-a", "{app}", "-i", "{icon}", "{title}", "{body}"],
+  "includeSubagents": false,
+  "detailChars": 120
+}
 ```
 
-（同上：严格 JSON，不能带注释。）
+（严格 JSON，不能带注释。这里列的都是**文件专属**的高级键；上表里标了「GUI」的键写在文件里不生效。）
+
 
 下面的表就是全部可调项：
 
@@ -394,8 +382,9 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 - `backend: "osascript"` → 主通道正常（跟浏览器无关）；`"none"` → 主通道不可用，页面会亮出「开启浏览器通知」的提示条走兜底。
 - `streams` → 当前连着的页面数（SSE 长连接）。
 - `backend` → 实际选中的通道；`backendConfig` / `windowsStyle` → **生效的配置值**。
-  Windows 上「弹的是右下角 Toast 还是右上角弹出窗」就由后两个值决定 —— 如果
-  `windowsStyle` 是 `toast`，说明被 `config.json` 覆盖了（不是默认值 `banner`）。
+  Windows 上「弹的是右下角 Toast 还是右上角弹出窗」就由后两个值决定。
+  `windowsStyle` 属于 GUI 管理的键 —— 它显示 `toast` 就说明你在卡片里选过系统通知
+  （在 `config.json` 里写这个键是无效的）。
 - `delivered` → 已 spawn 的通知命令数；`failed` → 其中**非 0 退出**的次数。
 - `configConflicts` → `config.json` 里被 GUI 接管的键（写了也不生效，列出来提醒你）。
 - `lastFallback` → 横幅失败后退回系统 Toast 时记 `toast`（区分「本来就该弹 Toast」和「兜底」）。
@@ -406,8 +395,8 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 ## 自检与验证
 
 ```bash
-npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（69 条）
-npm run smoke                    # host 半逻辑自测（88 条断言：真机 bug 回归 + 跨平台/平台分支）
+npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（71 条）
+npm run smoke                    # host 半逻辑自测（102 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）
@@ -427,7 +416,7 @@ npm run smoke -- --real          # 真的弹出系统通知，确认通道可用
   一一对应（smoke 有断言防止漂移），中英词典必须齐全。
 - **唯一运行时依赖**是 `@deepseek-ai/schemastery`：GUI 配置卡需要用它声明 `Config`
   （harness 的 settings 服务只投影 schemastery schema 里标了 `.volatile()` 的字段）。
-  除此之外 host 半仍是零依赖（`npm run check` 会断言顶层 import 只有它）。
+  除此之外没有别的运行时依赖（`npm run check` 除了断言顶层 import 只有它，还会真的去解析并 import 一次）。
 
 ## 已知限制
 

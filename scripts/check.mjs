@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const failures = []
@@ -79,6 +79,24 @@ const topImports = [...hostSource.matchAll(/^import\s+[^\n]*from\s+'([^']+)'/gm)
 if (topImports.length === 0) warn('dsh/host.js 没有顶层 import（Config schema 缺失？配置卡会没有字段）')
 else if (topImports.every(spec => spec === '@deepseek-ai/schemastery')) ok(`dsh/host.js 的顶层 import 只有 schemastery（${topImports.length} 处）`)
 else bad(`dsh/host.js 引入了意料之外的顶层依赖：${topImports.join(', ')}`)
+// 顶层依赖必须真的能解析、模块必须真的能 import —— node --check 只查语法，
+// 新克隆没跑 npm install 时它会"全部通过"，而 host 半一 import 就抛 ERR_MODULE_NOT_FOUND。
+for (const spec of topImports) {
+  try {
+    createRequire(import.meta.url).resolve(spec)
+    ok(`运行时依赖可解析：${spec}`)
+  } catch {
+    bad(`运行时依赖装不上（先在插件目录 npm install）：${spec}`)
+  }
+}
+try {
+  const loaded = await import(pathToFileURL(join(root, 'dsh/host.js')).href)
+  if (typeof loaded.apply === 'function' && loaded.Config !== undefined) ok('dsh/host.js 能被真正 import（apply + Config 都在）')
+  else bad('dsh/host.js 导出的 apply / Config 不完整')
+} catch (error) {
+  bad(`dsh/host.js 无法 import：${error instanceof Error ? error.message : String(error)}`)
+}
+
 const dynamicImports = [...hostSource.matchAll(/import\((['"])([^'"]+)\1\)/g)].map((m) => m[2])
 if (dynamicImports.length > 0 && dynamicImports.every((spec) => spec.startsWith('node:'))) {
   ok(`动态 import 只用 Node 内置模块（${dynamicImports.join(', ')}）`)

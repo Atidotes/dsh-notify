@@ -109,7 +109,7 @@ await bench.call('agent/status', { agent: { id: 'session-1' }, status: 'idle' })
 await new Promise((resolve) => setTimeout(resolve, 30))
 show('完成横幅', captured[0])
 
-// 另一种标题口径：不要项目名，固定用应用名。
+// 另一种标题口径：用会话所在目录名（titleFrom: 'project'），而不是固定应用名。
 const alt = makeCtx({ 'session-1': { header: { cwd: '/Users/you/work/deepseek-plugin' } } })
 apply(alt.ctx, { remindEveryMs: 0, minRunMs: 0, backend: 'osascript', titleFrom: 'project' })
 captured.length = 0

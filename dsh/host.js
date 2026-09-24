@@ -24,9 +24,12 @@
 // ---------------------------------------------------------------------------
 // 投递通道
 // ---------------------------------------------------------------------------
+//   Swift 通知 app（macOS 默认）→ 官方图标 + 官方应用名，未处理审批按间隔重提醒
 //   terminal-notifier（若已装）→ 可点击打开页面、-group 去重、自定义图标
 //   osascript `display notification`（macOS 自带，永远可用）→ argv 传参，无转义问题
-//   command → 自定义 argv 模板，给 Windows / Linux 留的口子
+//   Windows：自绘置顶弹出窗（默认）/ PowerShell WinRT Toast / SnoreToast
+//   Linux：notify-send
+//   command → 自定义 argv 模板，任意平台的口子
 //
 // 页面内卡片不再自己订阅事件（那样会漏掉审批）：host 半把每条通知写进一个
 // 环形缓冲，并通过同源路由 `/dsh-notify/feed` 暴露，client 半轮询渲染。
@@ -101,7 +104,7 @@ export const DEFAULT_CONFIG = {
   minRunMs: 3_000,
   /** 子代理 / teammate 会话是否也通知。 */
   includeSubagents: false,
-  /** 'auto' | 'osascript' | 'terminal-notifier' | 'command'。 */
+  /** 'auto' | 'command' | 'banner' | 'powershell' | 'snoretoast' | 'osascript' | 'terminal-notifier' | 'notify-send'。 */
   backend: 'auto',
   /** backend='command' 时的 argv 模板，占位符 {title} {subtitle} {body}。 */
   command: undefined,
@@ -138,7 +141,7 @@ export const DEFAULT_CONFIG = {
   bannerRadius: 40,
   /**
    * banner 模式的高度（96 DPI 下的逻辑像素）：
-   *   0（默认）= 按正文实际行数**自适应**（单行 ≈ 54、两行 ≈ 70），不留白
+   *   0（默认）= 按正文实际行数**自适应**（单行 ≈ 56、两行 ≈ 72），不留白
    *   > 0      = 固定高度（想钉死尺寸才用；设大了就会出现多余留白）
    */
   bannerHeight: 0,
@@ -164,9 +167,9 @@ export const Config = Schema.object({
   question: Schema.boolean().default(true).volatile(),
   done: Schema.boolean().default(true).volatile(),
   // ② 触发时机 / 提醒节奏
-  minRunMs: Schema.number().min(0).step(500).default(3_000).volatile(),
-  remindEveryMs: Schema.number().min(0).step(1_000).default(30_000).volatile(),
-  maxReminders: Schema.number().min(0).step(1).default(10).volatile(),
+  minRunMs: Schema.number().min(0).max(86_400_000).step(500).default(3_000).volatile(),
+  remindEveryMs: Schema.number().min(0).max(86_400_000).step(1_000).default(30_000).volatile(),
+  maxReminders: Schema.number().min(0).max(1_000).step(1).default(10).volatile(),
   // ③ 提醒类型：Windows 自绘弹出窗 / 系统通知；以及通道选择
   windowsStyle: Schema.union(['banner', 'toast']).default('banner').volatile(),
   backend: Schema.union([
@@ -373,7 +376,7 @@ export function powershellToastScript(title, body, appId, iconPath) {
     : slashPath.startsWith('/') ? `file://${slashPath}` : `file:///${slashPath}`
   const image = fileUri === ''
     ? ''
-    : `<image placement="appLogoOverride" src="${fileUri}"/>`
+    : `<image placement="appLogoOverride" src="${escapeXmlText(fileUri)}"/>`
   const xml = `<toast><visual><binding template="ToastGeneric">${image}`
     + `<text>${escapeXmlText(title)}</text><text>${escapeXmlText(body)}</text>`
     + '</binding></visual></toast>'
@@ -416,8 +419,13 @@ export function powershellBannerScript(options) {
   const leftExpr = atLeft ? '$wa.Left + $m' : '$wa.Right - $form.Width - $m'
   const topExpr = atBottom ? '$wa.Bottom - $form.Height - $m' : '$wa.Top + $m'
   const openUrl = typeof options.openUrl === 'string' && options.openUrl !== '' ? options.openUrl : ''
-  const click = openUrl === '' ? '' : [
-    `$onClick = { Start-Process ${q(openUrl)}; $form.Close() }`,
+  // 无边框 + TopMost：如果 durationMs=0 又没配 openUrl，用户将无法关闭这张卡片。
+  // 所以"点击关闭"永远生成；配了 openUrl 时再顺带打开 DSH。
+  const clickBody = openUrl === ''
+    ? '$form.Close()'
+    : `Start-Process ${q(openUrl)}; $form.Close()`
+  const click = [
+    `$onClick = { ${clickBody} }`,
     '$form.Add_Click($onClick); $title.Add_Click($onClick)',
     '$body.Add_Click($onClick); $pic.Add_Click($onClick)',
   ].join('; ')
@@ -586,6 +594,8 @@ export function apply(ctx, config = {}) {
   let lastDeliveredAt
   /** 横幅失败后退回系统 Toast 时记一句，便于区分「本来就该是 Toast」和「兜底」。 */
   let lastFallback
+  /** 显式指定但本机不可用、已回退 auto 的通道（诊断）。 */
+  let backendFallback
 
   // 通知 app（自编译 Swift，带官方图标）的状态：undefined → 'ready' | 'failed'
   let notifierState
@@ -613,7 +623,8 @@ export function apply(ctx, config = {}) {
    * Node 的文件读写：用**动态 import** 拿到 `node:fs/promises`。
    *
    * 为什么不 spawn `/bin/sh -c 'printf …'` / `/bin/cat`：那两条在 Windows 上不存在，
-   * 这套代码要跨平台。动态 import 不引入任何 npm 依赖，仍然满足「零依赖」。
+   * 这套代码要跨平台。动态 import 不引入额外的 npm 依赖（唯一的运行时依赖是
+   * 声明配置卡 schema 用的 schemastery）。
    */
   let fsPromise
   function nodeFs() {
@@ -655,7 +666,8 @@ export function apply(ctx, config = {}) {
    * 可选的外部配置：`<基础目录>/config.json`。
    *
    * 为什么需要它：bundle patch 行里的 `config` 依赖 loader 的 Config 机制，而本插件
-   * 刻意不声明 Config（保持零依赖）；用文件覆盖 DEFAULT_CONFIG 则各平台一致、免重启改配置。
+   * 现在 GUI 配置卡走的是上面导出的 `Config`（volatile 字段，改完立即生效）；这个文件通道
+   * 继续负责**高级键**（command / iconPath / notifierDir / windowsAppId…）与没有 GUI 的部署。
    */
   const configReady = (async () => {
     try {
@@ -666,6 +678,8 @@ export function apply(ctx, config = {}) {
       const parsed = JSON.parse(text)
       if (parsed === null || typeof parsed !== 'object') return
       for (const [key, value] of Object.entries(parsed)) {
+        // 不允许本地配置文件改原型（JSON.parse 会把 __proto__ 变成自有键）
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
         // GUI/loader 已经管着这个键：文件不再覆盖，避免"在界面里改了却不生效"。
         if (Object.hasOwn(fromLoader, key)) {
           configConflicts.push(key)
@@ -792,11 +806,12 @@ export function apply(ctx, config = {}) {
                 items: since === undefined ? [] : feed.filter((item) => item.seq > since),
                 diag: {
                   platform,
-                  subprocess: service('subprocess') !== undefined,
+                  subprocess: subprocessService() !== undefined,
                   backend: backendKind ?? 'unresolved',
                   // 生效的配置：Windows 上「弹的是右下角 Toast 还是右上角弹出窗」
                   // 完全由这两个值决定，写进诊断就不用猜是哪一层覆盖了默认值。
                   backendConfig: cfg.backend,
+                  backendFallback,
                   windowsStyle: cfg.windowsStyle,
                   notifier: notifierState ?? 'idle',
                   notifierPath,
@@ -901,26 +916,27 @@ export function apply(ctx, config = {}) {
    * 探测可用通道。**只缓存成功结果**：subprocess 可能晚于本插件注册，
    * 把「暂时没有服务」也缓存下来，会让之后所有通知都静默失败。
    */
-  async function resolveBackend() {
+  function resolveBackend() {
     if (backendPromise) return backendPromise
-    // config.json 里的 snoretoastCommand 等键参与通道选择：先等文件读完再探测，
-    // 否则探测会抢在文件之前、结果还被缓存（装了 SnoreToast 却一直走 PowerShell Toast）。
-    await configReady
     const attempt = (async () => {
+      // config.json 里的 snoretoastCommand 等键参与通道选择：先等文件读完再探测，
+      // 否则探测会抢在文件之前、结果还被缓存（装了 SnoreToast 却一直走 PowerShell Toast）。
+      // 注意 await 要放在 IIFE **内部**、backendPromise 在下面同步赋值：否则并发调用
+      // 会双双穿过上面的守卫，探测跑两遍（重复 spawn / 重复 swiftc 构建）。
+      await configReady
       const subprocess = subprocessService()
       if (!subprocess || typeof subprocess.spawn !== 'function') return undefined
 
-      // 显式指定优先
-      if (cfg.backend === 'command') return cfg.command ? { kind: 'command' } : undefined
-      if (cfg.backend === 'osascript') return platform === 'darwin' ? { kind: 'osascript' } : undefined
-      if (cfg.backend === 'terminal-notifier') {
-        const exe = await resolveExe('terminal-notifier')
-        return exe === undefined ? undefined : { kind: 'terminal-notifier', exe }
+      // 显式指定优先；指定的通道在本机不可用（或 command 没有 argv 模板）时**回退 auto**，
+      // 并把原因写进诊断 —— 否则 GUI 里选错一次就等于通知全停（探测 15 次后 backend=none）。
+      const requested = cfg.backend
+      if (requested !== 'auto') {
+        const explicit = await pickExplicit(requested)
+        if (explicit !== undefined) return explicit
+        backendFallback = requested
+        lastError = `指定的通知通道不可用（${requested}），已回退到自动选择`
+        console.warn(`[dsh-notify] ${lastError}`)
       }
-      if (cfg.backend === 'notify-send') return pickNotifySend()
-      if (cfg.backend === 'snoretoast') return pickSnoreToast()
-      if (cfg.backend === 'powershell') return pickPowerShell()
-      if (cfg.backend === 'banner') return pickBanner()
 
       // auto：按平台挑
       if (platform === 'darwin') {
@@ -944,7 +960,16 @@ export function apply(ctx, config = {}) {
         backendPromise = undefined // 不缓存失败：下一次调用重新探测
         return undefined
       }
+      const changed = backendKind !== backend.kind
       backendKind = backend.kind
+      // 通道变了要广播：否则页面最长 15 秒还停在旧结论（该用浏览器兜底时不用、不该用时重复弹）
+      if (changed) {
+        try {
+          broadcastStatus()
+        } catch {
+          // 推送失败不影响投递
+        }
+      }
       return backend
     })
     backendPromise = attempt
@@ -1085,6 +1110,23 @@ export function apply(ctx, config = {}) {
     }, () => {})
   }
 
+  /** 显式指定的通道在本机的可用性；command 必须是**非空 argv 数组**（字符串会让通知静默全丢）。 */
+  async function pickExplicit(kind) {
+    if (kind === 'command') {
+      return Array.isArray(cfg.command) && cfg.command.length > 0 ? { kind: 'command' } : undefined
+    }
+    if (kind === 'osascript') return platform === 'darwin' ? { kind: 'osascript' } : undefined
+    if (kind === 'terminal-notifier') {
+      const exe = await resolveExe('terminal-notifier')
+      return exe === undefined ? undefined : { kind: 'terminal-notifier', exe }
+    }
+    if (kind === 'notify-send') return pickNotifySend()
+    if (kind === 'snoretoast') return pickSnoreToast()
+    if (kind === 'powershell') return pickPowerShell()
+    if (kind === 'banner') return pickBanner()
+    return undefined
+  }
+
   /** 跑一条命令并等它结束；任何失败都返回 undefined。构建通知 app 用。 */
   function spawnWait(argv, cwd, timeoutMs) {
     return new Promise((resolve) => {
@@ -1128,18 +1170,20 @@ export function apply(ctx, config = {}) {
           graceMs: timeoutMs ?? 20_000,
         })
         const finish = (outcome) => {
-          let out = ''
-          try {
-            out = handle?.collected?.stdout?.readFrom(0)?.text ?? ''
-          } catch {
-            out = ''
+          const read = (stream) => {
+            try {
+              return handle?.collected?.[stream]?.readFrom(0)?.text ?? ''
+            } catch {
+              return ''
+            }
           }
-          resolve({ exitCode: outcome?.exitCode ?? -1, out })
+          // out = stdout，err = stderr：编译器的报错全在 stderr，只读 stdout 会永远得到 "unknown"
+          resolve({ exitCode: outcome?.exitCode ?? -1, out: read('stdout'), err: read('stderr') })
         }
         if (handle && handle.done && typeof handle.done.then === 'function') {
           handle.done.then(finish, () => resolve(undefined))
         } else {
-          resolve({ exitCode: 0, out: '' })
+          resolve({ exitCode: 0, out: '', err: '' })
         }
       } catch (error) {
         lastError = describe(error)
@@ -1177,14 +1221,17 @@ export function apply(ctx, config = {}) {
   async function purgeLegacyNotifiers(base) {
     if (base === '') return
     const legacy = [
-      `${base}/${cfg.appName}.app`, // 早期版本直接放在基础目录
-      `${base}/swift-v1`,
-      `${base}/swift-v2`,
+      // 早期版本直接放在基础目录：bundle 就是 `${base}/${appName}.app` 本身。
+      // 曾经这里统一拼成 `${path}/${appName}.app`，对这条就成了不存在的 App.app/App.app，
+      // 于是"清理旧注册"形同虚设（正是这个函数要防的旧图标问题）。
+      { path: `${base}/${cfg.appName}.app`, bundle: `${base}/${cfg.appName}.app` },
+      { path: `${base}/swift-v1`, bundle: `${base}/swift-v1/${cfg.appName}.app` },
+      { path: `${base}/swift-v2`, bundle: `${base}/swift-v2/${cfg.appName}.app` },
     ]
-    for (const path of legacy) {
-      if (path === resolveNotifierDir()) continue
-      await spawnWait([LSREGISTER_PATH, '-u', `${path}/` + cfg.appName + '.app'])
-      await spawnWait(['/bin/rm', '-rf', path])
+    for (const entry of legacy) {
+      if (entry.path === resolveNotifierDir()) continue
+      await spawnWait([LSREGISTER_PATH, '-u', entry.bundle])
+      await spawnWait(['/bin/rm', '-rf', entry.path])
     }
     // 早期版本直接写在基础目录下的散件（队列、编译缓存、源码、状态、旧标记）。
     if (base !== resolveNotifierDir()) {
@@ -1265,7 +1312,8 @@ export function apply(ctx, config = {}) {
       )
       const compiled = await spawnCapture(compileArgv, undefined, 180_000)
       if (compiled === undefined || compiled.exitCode !== 0) {
-        const tail = (compiled?.out ?? '').trim().split('\n').filter(Boolean).slice(-1)[0] ?? 'unknown'
+        const text = `${compiled?.err ?? ''}\n${compiled?.out ?? ''}`.trim()
+        const tail = text.split('\n').filter(Boolean).slice(-1)[0] ?? 'unknown'
         lastError = `通知 app 编译失败：${tail}`
         return false
       }
@@ -1329,7 +1377,17 @@ export function apply(ctx, config = {}) {
     const written = await writePayloadFile(`${dir}/queue`, payload, [message.title, message.body, sound || ''])
     if (!written) return false
     const opened = await spawnWait(['/usr/bin/open', '-a', notifierPath], message.cwd)
-    if (opened === undefined || opened.exitCode !== 0) return false
+    if (opened === undefined || opened.exitCode !== 0) {
+      // open 失败后载荷还留在 queue/：下次成功启动时 Swift app 会先把它取走，
+      // 那条通知就会"迟到重播"。best-effort 删掉（此时调用方会退回 osascript，用户已收到）。
+      try {
+        const fs = await nodeFs()
+        if (fs !== undefined) await fs.rm(payload, { force: true })
+      } catch {
+        // 删不掉就算了，不能影响投递
+      }
+      return false
+    }
     delivered += 1
     lastError = undefined
     lastCommand = `open -a ${cfg.appName}.app`
@@ -1346,6 +1404,7 @@ export function apply(ctx, config = {}) {
     if (disposed) return
     try {
       await configReady // 先让 <基础目录>/config.json 生效
+      if (disposed) return
       const backend = await resolveBackend()
       backendKind = backend === undefined ? 'none' : backend.kind
       if (backend === undefined) return
@@ -1546,8 +1605,11 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  if (cfg.approval) {
-    observeWaterfall('approval/request', (req) => {
+  // 注意：**不能**在注册时 if (cfg.approval) 判断 —— GUI 改的是 volatile 字段，
+  // 宿主原地更新引用、不重挂插件，注册时的判断会让开关"改了没反应"（关不掉 / 开不了）。
+  // 正确的做法是永远注册，在每次事件里读当前值。
+  observeWaterfall('approval/request', (req) => {
+      if (!cfg.approval) return undefined
       const sessionId = req && req.agent ? req.agent.id : undefined
       const info = sessionInfo(sessionId)
       if (info.subagent && !cfg.includeSubagents) return undefined
@@ -1569,18 +1631,22 @@ export function apply(ctx, config = {}) {
       const ref = notify({ kind: 'approval', name, body, detail, sessionId }, message)
       const plan = startPlan(message, ref)
       const key = String(req?.callId ?? sessionId ?? '')
-      if (key) openPlans.set(key, plan)
+      if (key) {
+        // 同一个 key 已经有计划就先停掉（否则旧计划的 stop() 会把新条目从 map 里删掉）
+        const previous = openPlans.get(key)
+        if (previous !== undefined && previous !== plan) previous.stop()
+        openPlans.set(key, plan)
+      }
       return {
         stop() {
           if (key) openPlans.delete(key)
           plan.stop()
         },
       }
-    })
-  }
+  })
 
-  if (cfg.question) {
-    observeWaterfall('user-questions/request', (request) => {
+  observeWaterfall('user-questions/request', (request) => {
+      if (!cfg.question) return undefined
       const sessionId = request && request.agent ? request.agent.id : undefined
       const info = sessionInfo(sessionId)
       if (info.subagent && !cfg.includeSubagents) return undefined
@@ -1602,15 +1668,13 @@ export function apply(ctx, config = {}) {
       const ref = notify({ kind: 'question', name, body, detail, sessionId }, message)
       const plan = startPlan(message, ref)
       return { stop: () => plan.stop() }
-    })
-  }
+  })
 
   // -------------------------------------------------------------------------
   // ② 任务跑完（agent/status 是 emit，所有监听都会执行）
   // -------------------------------------------------------------------------
 
-  if (cfg.done) {
-    try {
+  try {
       ctx.on('agent/status', (payload) => {
         try {
           const agent = payload && payload.agent
@@ -1624,6 +1688,8 @@ export function apply(ctx, config = {}) {
           const startedAt = runs.get(agent.id)
           runs.delete(agent.id)
           if (startedAt === undefined) return
+          // 开关同样是"每次判断"，这样 GUI 里关掉/打开立刻生效。
+          if (!cfg.done) return
           const elapsed = Date.now() - startedAt
           if (elapsed < cfg.minRunMs) return
           const info = sessionInfo(agent.id)
@@ -1646,7 +1712,6 @@ export function apply(ctx, config = {}) {
     } catch (error) {
       console.error(`[dsh-notify] 无法注册 agent/status 监听：${describe(error)}`)
     }
-  }
 
   // 启动自检：subprocess 等依赖可能晚一拍注册，所以这里是有界重试而不是一次性判定，
   // 免得把「暂时还没就绪」当成「永远没有通道」（第一版就是在这里翻的车）。
@@ -1690,6 +1755,9 @@ export function apply(ctx, config = {}) {
         backendPromise = undefined
         backendKind = undefined
         probeAttempts = 0
+        // 允许重建通知 app：一次瞬时编译失败（xcrun 还没装好 / 签名抖动）不该永久降级
+        notifierPromise = undefined
+        if (notifierState === 'failed') notifierState = undefined
         console.log(`[dsh-notify] 配置已更新，重新探测通知通道（原通道：${before ?? 'unresolved'}）`)
         probeBackend()
       } catch (error) {

@@ -19,7 +19,17 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { apply, Config, DEFAULT_CONFIG } from '../dsh/host.js'
+// 依赖缺失（比如新克隆没跑 npm install）时给一句人话，而不是 ERR_MODULE_NOT_FOUND 堆栈。
+let apply
+let Config
+let DEFAULT_CONFIG
+try {
+  ({ apply, Config, DEFAULT_CONFIG } = await import('../dsh/host.js'))
+} catch (error) {
+  console.error('[smoke] 无法加载 dsh/host.js —— 先在插件目录执行 npm install（需要 @deepseek-ai/schemastery）。')
+  console.error(String(error))
+  process.exit(1)
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -651,8 +661,6 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   }
 }
 
-// 清理用例产生的临时目录
-rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
 
 // --- 13. Windows 右上角横幅模式（系统 Toast 位置改不了）----------------------
 {
@@ -936,17 +944,34 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
 
     // ② 中英词典必须覆盖：分组标题 + 每个字段的标签/说明 + 每个枚举值 + 界面文案
     const needed = [
-      ...card.CONFIG_GROUPS.map((group) => group.title),
+      // 分组标题 + 平台徽标
+      ...card.CONFIG_GROUPS.flatMap((group) => [group.title, group.chip].filter((key) => typeof key === 'string')),
       ...card.CONFIG_FIELDS.flatMap((field) => [`f.${field.key}`, `h.${field.key}`]),
       ...card.CONFIG_FIELDS.filter((field) => field.kind === 'enum')
         .flatMap((field) => (field.values ?? []).map((value) => `v.${field.key}.${value}`)),
-      'save', 'saving', 'discard', 'reset', 'overridden', 'saveFailed', 'unavailableRemote', 'unavailableHost', 'readOnly', 'loading', 'dirty',
+      // 枚举字段在别的平台的取值也要有词条（BACKEND_BY_PLATFORM 里列出的那些）
+      ...Object.values(card.BACKEND_BY_PLATFORM).flat()
+        .map((value) => `v.backend.${value}`),
+      // 界面文案（含后加的平台提示与「显示所有平台」开关）
+      'save', 'saving', 'discard', 'reset', 'overridden', 'saveFailed',
+      'unavailableRemote', 'unavailableHost', 'readOnly', 'loading', 'dirty',
+      'platformUnknown', 'showAll', 'h.showAll',
+      // 字段级校验错误（invalidReason 返回的键，动态引用）
+      'invalidNumber', 'invalidRange', 'invalidFields',
     ]
     for (const [name, dict] of [['zh', card.CONFIG_ZH], ['en', card.CONFIG_EN]]) {
       const gaps = needed.filter((key) => typeof dict[key] !== 'string' || dict[key] === '')
       if (gaps.length === 0) ok(`配置卡 ${name} 词典齐全（${needed.length} 个键）`)
       else bad(`配置卡 ${name} 词典缺 ${gaps.length} 个键：${gaps.slice(0, 6).join(', ')}…`)
     }
+    // 中英必须一一对应，且不留没人引用的僵尸键
+    const zhKeys = Object.keys(card.CONFIG_ZH).sort()
+    const enKeys = Object.keys(card.CONFIG_EN).sort()
+    if (JSON.stringify(zhKeys) === JSON.stringify(enKeys)) ok(`配置卡中英词典一一对应（${zhKeys.length} 个键）`)
+    else bad('配置卡中英词典键不一致')
+    const zombie = zhKeys.filter((key) => !needed.includes(key))
+    if (zombie.length === 0) ok('配置卡词典没有未被引用的僵尸键')
+    else bad(`配置卡词典有僵尸键：${zombie.slice(0, 6).join(', ')}…`)
 
     // ③ 平台筛选：macOS 不显示 Windows 那一套，Linux 不显示 macOS 提示音
     const mac = card.fieldsForPlatform('darwin').map((spec) => spec.key)
@@ -994,14 +1019,54 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
       bad('当前值没有补进下拉选项')
     }
 
-    // ④ 草稿 diff / 取值逻辑
-    const diff = card.changedKeys({ bannerWidth: 420, approval: true }, { bannerWidth: 350, approval: false })
-    if (diff.length === 2 && diff.includes('bannerWidth')) ok('草稿 diff 只提交改动过的键')
-    else bad(`草稿 diff 不对：${JSON.stringify(diff)}`)
-    if (card.fieldValue('bannerWidth', { bannerWidth: 420 }, { bannerWidth: 350 }) === 420) ok('草稿值优先于宿主值')
-    else bad('草稿取值优先级不对')
+    // ④ 草稿：稀疏 + path ops（一次 mutate 提交）
+    const ops = card.draftOps({ bannerWidth: { op: 'set', value: 420 }, subtitle: { op: 'unset' } })
+    const setOp = ops.find((op) => op.path[0] === 'bannerWidth')
+    const unsetOp = ops.find((op) => op.path[0] === 'subtitle')
+    if (ops.length === 2 && setOp?.op === 'set' && setOp.value === 420 && unsetOp?.op === 'unset') {
+      ok('草稿 → path ops（set / unset 一次提交，原子）')
+    } else {
+      bad(`path ops 不对：${JSON.stringify(ops)}`)
+    }
+    if (card.draftValue('bannerWidth', { bannerWidth: { op: 'set', value: 420 } }, { bannerWidth: 350 }, {}) === 420) {
+      ok('草稿值优先于宿主值（只覆盖用户动过的键）')
+    } else {
+      bad('草稿取值优先级不对')
+    }
+    if (card.draftValue('sound', { subtitle: { op: 'unset' } }, { sound: 'Glass' }, {}) === 'Glass') {
+      ok('没动过的键不受草稿影响（不会覆盖别处改的值）')
+    } else {
+      bad('草稿影响了没动过的键')
+    }
+    if (card.draftValue('subtitle', { subtitle: { op: 'unset' } }, { subtitle: 'x' }, { subtitle: 'y' }) === 'y') {
+      ok('unset 草稿回落到继承层（重置跟随保存/放弃，而不是立刻写宿主）')
+    } else {
+      bad('unset 草稿的取值不对')
+    }
 
-    // ⑤ 真的注册到 plugins.bundle.config，key 用包名
+    // ⑤ 数值边界与宿主 schema 对齐（客户端先校验，避免整批被拒后只回一句"保存失败"）
+    const numericSpecs = card.CONFIG_FIELDS.filter((spec) => spec.kind === 'number').map((spec) => spec.key)
+    const missingLimits = numericSpecs.filter((key) => card.NUMBER_LIMITS[key] === undefined)
+    if (missingLimits.length === 0) ok(`数值字段都配了边界（${numericSpecs.length} 个）`)
+    else bad(`这些数值字段没有边界：${missingLimits.join(', ')}`)
+    const drift = []
+    for (const [key, limit] of Object.entries(card.NUMBER_LIMITS)) {
+      const node = Config.dict[key]
+      if (node?.meta?.min !== limit.min || node?.meta?.max !== limit.max) {
+        drift.push(`${key}(客户端 ${limit.min}-${limit.max} / schema ${node?.meta?.min}-${node?.meta?.max})`)
+      }
+    }
+    if (drift.length === 0) ok('客户端数值边界与宿主 schema 的 min/max 完全一致')
+    else bad(`数值边界与 schema 漂移：${drift.join(', ')}`)
+    if (card.invalidReason('bannerWidth', 'number', 9999) === 'invalidRange'
+      && card.invalidReason('bannerWidth', 'number', 350) === undefined
+      && card.invalidReason('approval', 'boolean', true) === undefined) {
+      ok('字段级校验：超范围标红、合法值与布尔字段放行')
+    } else {
+      bad('字段级校验不对')
+    }
+
+    // ⑥ 真的注册到 plugins.bundle.config，key 用包名
     const registrations = []
     const scope = {
       slots: {
@@ -1039,7 +1104,29 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     bad(`backend=command 没有生效：${JSON.stringify(captured.map((a) => a[0]))}`)
   }
 
-  // ② 通道探测必须等 config.json 读完：否则文件里的 snoretoastCommand 赶不上探测并被缓存
+  // ② 显式指定的通道不可用（这里是 command 没有 argv 数组）时必须回退 auto，
+  //    而不是"探测失败 → backend=none → 通知静默全停"
+  captured.length = 0
+  const fallback = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-26': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    // command 给字符串（truthy 但不是数组）：旧代码会认定通道可用，然后一条都发不出去
+    apply(fallback.ctx, Object.assign(Config({ backend: 'command', remindEveryMs: 0 }), { command: 'notify-send {title}' }))
+  })
+  await fallback.call('approval/request', { agent: { id: 'session-26' }, toolName: 'bash' })
+  await settle()
+  const fallbackDiag = (await fallback.route(`${FEED_PATH}?since=0`))?.diag ?? {}
+  if (fallbackDiag.backend === 'banner' && fallbackDiag.backendFallback === 'command') {
+    ok('显式通道不可用时回退 auto（backend=banner，诊断记 backendFallback=command）')
+  } else {
+    bad(`显式通道没有回退：backend=${String(fallbackDiag.backend)} fallback=${String(fallbackDiag.backendFallback)}`)
+  }
+  if (captured.some((argv) => String(argv[0]).includes('powershell'))) ok('回退后通知真的发出去了（没有静默全停）')
+  else bad('回退后仍然什么都没发')
+
+  // ③ 通道探测必须等 config.json 读完：否则文件里的 snoretoastCommand 赶不上探测并被缓存
   const dir = tmpNotifierDir()
   mkdirSync(dir, { recursive: true })
   writeFileSync(`${dir}/config.json`, JSON.stringify({ snoretoastCommand: 'C:\\tools\\SnoreToast.exe' }), 'utf8')
@@ -1052,6 +1139,72 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   if (diag.backend === 'snoretoast') ok('探测等到了 config.json：snoretoastCommand 生效（backend=snoretoast）')
   else bad(`config.json 的 snoretoastCommand 没赶上探测：backend=${String(diag.backend)}`)
 }
+
+// --- 20. 回归：通知开关是「每次事件判断」，GUI 切换立刻生效 -------------------
+{
+  // loader 用这个全局符号把新值写进 volatile 引用（vendor/cosmokit/src/volatile.ts）。
+  // 用它来忠实模拟「在配置卡里改开关」：引用原地更新、插件不重挂。
+  const WRITE = Symbol.for('cosmokit.volatile.write')
+  const config = Config({ approval: true, question: true, done: true, remindEveryMs: 0, minRunMs: 0, backend: 'osascript' })
+  const bench = makeCtx({ sessions: { 'session-25': { header: { cwd: '/tmp/live' } } } })
+  apply(bench.ctx, config)
+
+  captured.length = 0
+  await bench.call('approval/request', { agent: { id: 'session-25' }, toolName: 'bash' })
+  await settle()
+  const beforeOff = captured.length
+  config.approval[WRITE](false)
+  await bench.call('approval/request', { agent: { id: 'session-25' }, toolName: 'bash' })
+  await settle()
+  if (beforeOff > 0 && captured.length === beforeOff) ok('关掉「需要审批时通知」后立刻不再发通知（不用重启）')
+  else bad(`关闭审批开关没生效：before=${beforeOff} after=${captured.length}`)
+
+  const approvalHandlers = bench.registrations('approval/request')
+  if (approvalHandlers.length === 1 && approvalHandlers[0].opts?.prepend === true) {
+    ok('开关关闭时观察者仍然注册（再打开即可生效，不会"永远收不到"）')
+  } else {
+    bad(`开关关闭时没有注册观察者：${approvalHandlers.length} 个`)
+  }
+
+  config.approval[WRITE](true)
+  captured.length = 0
+  await bench.call('approval/request', { agent: { id: 'session-25' }, toolName: 'bash' })
+  await settle()
+  if (captured.length > 0) ok('重新打开审批开关后立刻恢复通知')
+  else bad('重新打开审批开关后仍然不通知')
+
+  captured.length = 0
+  config.question[WRITE](false)
+  await bench.call('user-questions/request', { agent: { id: 'session-25' }, questions: [{ question: '要不要跑测试？' }] })
+  await settle()
+  const afterQuestionOff = captured.length
+  config.question[WRITE](true)
+  await bench.call('user-questions/request', { agent: { id: 'session-25' }, questions: [{ question: '要不要跑测试？' }] })
+  await settle()
+  if (afterQuestionOff === 0 && captured.length > 0) ok('「需要回答时通知」开关同样即时生效')
+  else bad(`提问开关没即时生效：off=${afterQuestionOff} on=${captured.length}`)
+
+  const statusListener = bench.registrations('agent/status')[0]?.listener
+  if (typeof statusListener === 'function') {
+    captured.length = 0
+    config.done[WRITE](false)
+    statusListener({ agent: { id: 'session-25' }, status: 'running' })
+    statusListener({ agent: { id: 'session-25' }, status: 'idle' })
+    await settle()
+    const afterDoneOff = captured.length
+    config.done[WRITE](true)
+    statusListener({ agent: { id: 'session-25' }, status: 'running' })
+    statusListener({ agent: { id: 'session-25' }, status: 'idle' })
+    await settle()
+    if (afterDoneOff === 0 && captured.length > 0) ok('「任务完成时通知」开关同样即时生效')
+    else bad(`任务完成开关没即时生效：off=${afterDoneOff} on=${captured.length}`)
+  } else {
+    bad('没有注册 agent/status 监听（应该永远注册）')
+  }
+}
+
+// 清理用例产生的临时目录（放在最后：后面的用例还会新建目录）
+rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
 
 console.log('')
 if (failures.length > 0) {
