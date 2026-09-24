@@ -288,6 +288,15 @@ GUI 配置卡（写进 profile 的 cordis.patch.yml）
 > 平台专属的字段默认只在对应平台上显示；在卡片顶部打开「显示所有平台的字段」就能在
 > 任何平台上看到并预配置它们（比如在 macOS 上先把 Windows 弹出窗参数配好）。
 
+**这条规则的边界（很重要）**：只要某个键在上面那 20 个里面，文件里写它就一直无效 ——
+**不管你有没有在卡片里动过它**。所以老配置文件里的 `bannerWidth`、`sound` 之类会被忽略
+（启动日志里有一条警告，诊断 `diag.configConflicts` 也会一直列出来），要用卡片改。
+
+想让某个键**交还给文件**：在卡片里点它的「重置」——这会把该键从 profile 的
+`cordis.patch.yml` 里删掉，之后文件里的值会重新生效（**需要重启一次 DSH**，因为
+`config.json` 是在插件启动时读的）。反过来，一旦你在卡片里改过某个键，它就归卡片管，
+文件再也压不过它，直到你把它重置。
+
 ### 在 GUI 里改（推荐）
 
 打开 **侧边栏 → Plugins → 消息通知（dsh-notify）**，插件详情页里就是配置卡，分五组：
@@ -395,7 +404,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 ## 自检与验证
 
 ```bash
-npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（71 条）
+npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（72 条）
 npm run smoke                    # host 半逻辑自测（102 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）

@@ -688,7 +688,12 @@ export function apply(ctx, config = {}) {
         cfg[key] = value
       }
       if (configConflicts.length > 0) {
-        console.warn(`[dsh-notify] config.json 里这些键已被 GUI 配置接管，文件值被忽略：${configConflicts.join('、')}`)
+        // 说清"谁赢了 + 怎么改回去"，光列键名会让人以为插件坏了。
+        console.warn(
+          `[dsh-notify] config.json 里这几个键由 GUI 配置卡管理，文件里的值被忽略：${configConflicts.join('、')}。`
+          + ' 改它们请用 Plugins → 消息通知 → 配置卡；或者把这几行从 config.json 删掉。'
+          + '（诊断 /dsh-notify/feed 的 diag.configConflicts 会一直列出被忽略的键。）',
+        )
       }
     } catch (error) {
       console.warn(`[dsh-notify] config.json 解析失败，已忽略：${describe(error)}`)

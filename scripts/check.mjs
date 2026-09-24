@@ -179,6 +179,12 @@ for (const [needle, label] of [
   if (clientSource.includes(needle)) ok(`配置卡含${label}（${needle}）`)
   else bad(`配置卡缺${label}`)
 }
+// 配置冲突警告必须说清「谁赢了 + 怎么改回去」（光列键名会让人以为插件坏了）
+if (hostSource.includes('由 GUI 配置卡管理') && hostSource.includes('从 config.json 删掉')) {
+  ok('配置冲突警告说清了"用卡片改 / 删掉这几行"')
+} else {
+  bad('配置冲突警告只列了键名，没有告诉用户怎么办')
+}
 if (/require\((['"])@deepseek-ai\//.test(clientSource)) {
   bad('客户端半 require 了非客户端模块行的包（浏览器里解析不到）')
 } else {
