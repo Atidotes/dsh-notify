@@ -1473,7 +1473,8 @@ export function apply(ctx, config = {}) {
       const name = conversationName(info.cwd)
       const toolName = clip(req?.toolName, 24) || '工具调用'
       // 横幅只留一句：工具名比一整段理由有用得多；理由放卡片的详情行。
-      const body = `🔐 需要审批：${toolName}`
+      // 前面不带 emoji（用户要求）：品牌信息已经在通知图标和标题里了。
+      const body = `需要审批：${toolName}`
       const detail = clip(req?.reason, cfg.detailChars)
       const message = {
         title: name,
@@ -1507,7 +1508,7 @@ export function apply(ctx, config = {}) {
       const text = first && typeof first.question === 'string' ? first.question : '有一个问题需要你回答'
       // 横幅只带一小截题干；完整内容放卡片的详情行。
       const snippet = clip(text, cfg.snippetChars)
-      const body = snippet === '' ? '❓ 需要你回答' : `❓ 需要你回答：${snippet}`
+      const body = snippet === '' ? '需要你回答' : `需要你回答：${snippet}`
       const detail = clip(text, cfg.detailChars)
       const message = {
         title: name,
@@ -1547,7 +1548,7 @@ export function apply(ctx, config = {}) {
           const info = sessionInfo(agent.id)
           if (info.subagent && !cfg.includeSubagents) return
           const name = conversationName(info.cwd)
-          const body = `✅ 任务完成 · ${humanDuration(elapsed)}`
+          const body = `任务完成 · ${humanDuration(elapsed)}`
           notify({ kind: 'done', name, body, sessionId: agent.id }, {
             title: name,
             subtitle: cfg.subtitle,

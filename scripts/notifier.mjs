@@ -83,7 +83,7 @@ if (existsSync(join(app, 'Contents', 'MacOS', 'notifier')) && !args.includes('--
 
 if (args.includes('--test')) {
   const payload = join(dir, 'queue', `${Date.now()}-selftest.txt`)
-  writeFileSync(payload, `${APP_NAME}\n✅ 自检通知 · 图标应为 DeepSeek 官方图标\nGlass\n`, 'utf8')
+  writeFileSync(payload, `${APP_NAME}\n自检通知 · 图标应为 DeepSeek 官方图标\nGlass\n`, 'utf8')
   execFileSync('/usr/bin/open', ['-a', app])
   console.log('已投递测试通知。首次会请求系统授权（允许一次即可）。')
   console.log('若一直没出现：系统设置 → 通知 → DeepSeek Harness → 允许通知。')

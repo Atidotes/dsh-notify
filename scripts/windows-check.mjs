@@ -36,7 +36,7 @@ const height = Number(flag('height', '0'))  // 0 = 按正文行数自适应
 const line = '='.repeat(78)
 const banner = powershellBannerScript({
   title: 'DeepSeek Harness',
-  body: '✅ 自检 · 右上角弹出窗（banner 默认形态）',
+  body: '自检 · 右上角弹出窗（banner 默认形态）',
   iconPath: icon,
   position,
   width,
@@ -48,7 +48,7 @@ const banner = powershellBannerScript({
 })
 const toast = powershellToastScript(
   'DeepSeek Harness',
-  '✅ 自检 · 系统 Toast（windowsStyle: toast 才走这条）',
+  '自检 · 系统 Toast（windowsStyle: toast 才走这条）',
   '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe',
   icon,
 )

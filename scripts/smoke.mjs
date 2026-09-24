@@ -262,7 +262,7 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   const bannerTitle = argv?.[3]
   const bannerSubtitle = argv?.[4]
   const bannerBody = argv?.[5]
-  if (bannerBody === '🔐 需要审批：bash') ok(`横幅正文简洁：「${bannerBody}」`)
+  if (bannerBody === '需要审批：bash') ok(`横幅正文简洁、不带 emoji：「${bannerBody}」`)
   else bad(`横幅正文不对：${JSON.stringify(bannerBody)}`)
   if (bannerSubtitle === '') ok('横幅不再显示常量应用名（省掉一行）')
   else bad(`横幅副标题应为空：${JSON.stringify(bannerSubtitle)}`)
@@ -502,7 +502,7 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   const queueFile = files.find((name) => name.endsWith('.txt'))
   if (queueFile !== undefined) {
     const lines = readFileSync(resolve(queueDir, queueFile), 'utf8').split('\n')
-    if (lines[0] === 'DeepSeek Harness' && lines[1] === '🔐 需要审批：bash' && lines[2] === 'Glass') {
+    if (lines[0] === 'DeepSeek Harness' && lines[1] === '需要审批：bash' && lines[2] === 'Glass') {
       ok('载荷三行写进带版本号的 queue/（标题 / 正文 / 声音）')
     } else {
       bad(`载荷内容不对：${JSON.stringify(lines.slice(0, 3))}`)
@@ -601,7 +601,7 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   if (ns !== undefined) {
     const joined = ns.join(' ')
     if (joined.includes('-a DeepSeek Harness') && joined.includes('deepseek.png')
-      && joined.includes('-u critical') && joined.includes('🔐 需要审批：bash')) {
+      && joined.includes('-u critical') && joined.includes('需要审批：bash')) {
       ok('Linux：notify-send 带应用名 / 图标 / 紧急级别')
     } else {
       bad(`notify-send 参数不对：${joined}`)

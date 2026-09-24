@@ -5,9 +5,9 @@
 
 | 触发 | 事件 | 系统横幅 |
 |---|---|---|
-| 需要你审批 | `approval/request` | **DeepSeek Harness** ／ 🔐 需要审批：bash |
-| 需要你回答 | `user-questions/request` | **DeepSeek Harness** ／ ❓ 需要你回答：要不要先跑一遍测试？ |
-| 任务跑完了 | `agent/status` running → idle | **DeepSeek Harness** ／ ✅ 任务完成 · 1 分 23 秒 |
+| 需要你审批 | `approval/request` | **DeepSeek Harness** ／ 需要审批：bash |
+| 需要你回答 | `user-questions/request` | **DeepSeek Harness** ／ 需要你回答：要不要先跑一遍测试？ |
+| 任务跑完了 | `agent/status` running → idle | **DeepSeek Harness** ／ 任务完成 · 1 分 23 秒 |
 
 文案原则：**横幅只有一个标题 + 一句话**。标题固定是 `DeepSeek Harness`（不显示项目名），第二行是动作 + 最短的必要信息；长理由、长提问留在 feed 的 `detail` 字段里备查，不塞进横幅。**通知只在系统层面出现，页面里不再渲染任何卡片。** 想先看效果不用重启：
 
@@ -331,7 +331,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 
 ```json
 { "head": 3,
-  "items": [{ "seq": 1, "kind": "approval", "name": "deepseek-plugin", "body": "🔐 bash 需要你审批…" }],
+  "items": [{ "seq": 1, "kind": "approval", "name": "deepseek-plugin", "body": "需要审批：bash" }],
   "diag": { "platform": "darwin", "subprocess": true, "backend": "osascript",
             "backendConfig": "auto", "windowsStyle": "banner",
             "delivered": 3, "failed": 0, "lastError": null,

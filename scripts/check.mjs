@@ -106,6 +106,11 @@ for (const [needle, label] of [
   if (hostSource.includes(needle)) ok(label)
   else bad(`缺少跨平台处理：${label}`)
 }
+// 通知正文不带前缀 emoji（用户要求：勾选 / 锁 / 问号这几个图标不展示）
+for (const emoji of ['\u{1F510}', '\u{2753}', '\u{2705}']) {
+  if (hostSource.includes(emoji)) bad(`通知正文又出现了 emoji：${emoji}`)
+  else ok('通知正文不带前缀图标（勾选 / 锁 / 问号）')
+}
 if (hostSource.includes("spawnWait(['/bin/sh'") || hostSource.includes("spawnCapture(['/bin/cat'")) {
   bad('仍有 /bin/sh 或 /bin/cat 依赖（Windows 上不存在）')
 } else {
