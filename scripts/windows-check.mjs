@@ -11,7 +11,7 @@
  *
  *   node scripts/windows-check.mjs
  *   node scripts/windows-check.mjs --icon "C:\path\to\dsh-notify\dsh\deepseek.png"
- *   node scripts/windows-check.mjs --position topleft --duration 0 --width 400 --min-width 340 --radius 40 --height 0
+ *   node scripts/windows-check.mjs --position topleft --duration 0 --width 350 --min-width 310 --radius 40 --height 0
  */
 import { powershellBannerScript, powershellToastScript } from '../dsh/host.js'
 
@@ -28,8 +28,8 @@ function flag(name, fallback) {
 const icon = flag('icon', 'C:\\path\\to\\dsh-notify\\dsh\\deepseek.png')
 const position = flag('position', 'topright')
 const durationMs = Number(flag('duration', '8000'))
-const width = Number(flag('width', '400'))      // 宽度上限
-const minWidth = Number(flag('min-width', '340'))
+const width = Number(flag('width', '350'))      // 宽度上限
+const minWidth = Number(flag('min-width', '310'))
 const radius = Number(flag('radius', '40'))
 const height = Number(flag('height', '0'))  // 0 = 按正文行数自适应
 
@@ -40,7 +40,7 @@ const banner = powershellBannerScript({
   iconPath: icon,
   position,
   width,
-  minWidth: Number.isFinite(minWidth) ? minWidth : 340,
+  minWidth: Number.isFinite(minWidth) ? minWidth : 310,
   radius: Number.isFinite(radius) ? radius : 40,
   height: Number.isFinite(height) ? height : 0,
   durationMs: Number.isFinite(durationMs) ? durationMs : 8_000,
@@ -69,7 +69,7 @@ ${line}
 【第 1 步】验证「自绘弹出窗」（默认形态；不受专注助手影响）
 把下面整段粘进「Windows PowerShell」（5.1，不是 PowerShell 7）后回车：
 期望：右上角出现一张浅色（深色主题下为深色）圆角卡片 —— 宽度按标题/正文里更长的那条
-自适应（**340–400** 之间）、高度按正文行数自适应（单行 ≈ 54、两行 ≈ 69）、34×34 官方图标、
+自适应（**310–350** 之间）、高度按正文行数自适应（单行 ≈ 62、两行 ≈ 77）、38×38 官方图标、
 13px 标题 + 12px 正文、底部只留 5px、**圆角取到「高度一半」= 胶囊形**；8 秒自动消失，点击打开 DSH。
 脚本会把实际几何打到 stderr（形如「dsh-notify 卡片 240x49」）。
 

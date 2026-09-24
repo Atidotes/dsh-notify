@@ -79,8 +79,8 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 {
   "windowsStyle": "banner",
   "bannerPosition": "topright",
-  "bannerWidth": 400,
-  "bannerMinWidth": 340,
+  "bannerWidth": 350,
+  "bannerMinWidth": 310,
   "bannerRadius": 40,
   "bannerDurationMs": 8000
 }
@@ -90,8 +90,8 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 |---|---|---|
 | `windowsStyle` | `banner`（默认）/ `toast` | `toast` = 系统通知（右下角、进通知中心、可能被专注助手吞） |
 | `bannerPosition` | `topright`（默认）/ `topleft` / `bottomright` / `bottomleft` | 自绘弹出窗的位置 |
-| `bannerWidth` | `400` | 宽度**上限**（96 DPI 下的逻辑像素）：卡片会按标题/正文自己收窄，不留一截空白 |
-| `bannerMinWidth` | `340` | 宽度**下限**；把上下限设成同一个值 = 钉死宽度 |
+| `bannerWidth` | `350` | 宽度**上限**（96 DPI 下的逻辑像素）：卡片会按标题/正文自己收窄，不留一截空白 |
+| `bannerMinWidth` | `310` | 宽度**下限**；把上下限设成同一个值 = 钉死宽度 |
 | `bannerRadius` | `40` | 圆角半径（越大越圆）；自动夹在卡片高度的一半（= 胶囊形）以内 |
 | `bannerHeight` | `0`（= 自适应） | 高度：**默认按正文行数自适应**（单行 ≈ 49、两行 ≈ 64），不留白；填正数则固定高度 |
 | `bannerDurationMs` | `8000` | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
@@ -105,7 +105,7 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 效果：置顶、无边框的**通知卡片**，点击任意位置打开 DSH，到点自动消失。
 
 外观按 **macOS 通知横幅** 对齐，并且**四周都不留空白**：**宽度按标题/正文里更长的那条量出来**
-（默认 **340–400** 之间；正文右侧另留 16px 呼吸位，长提问最多 400 后换行）、**高度 = 标题 + 正文 +
+（默认 **310–350** 之间；正文右侧另留 16px 呼吸位，长提问最多 350 后换行）、**高度 = 标题 + 正文 +
 底部 5px**（用 `TextRenderer.MeasureText` 量正文真实行高，单行 ≈ **49**、两行 ≈ **64**；
 测量带 `NoPadding`，否则默认测量值里的边框留白会让卡片凭空高几像素）、**34×34** 官方
 彩色图标（垂直居中）、**13px 半粗标题 + 12px 正文**、左内边距 10px / 右 16px、**圆角取满（胶囊）**、
@@ -114,8 +114,8 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 > 卡片实际几何会写进 stderr（形如 `dsh-notify 卡片 360x49（正文 16px / scale 1）`），
 > 在 `diag.lastStderr` 里能看到 —— 觉得还高/还矮时，把这个数字发出来即可。
 
-> **关于「弹出窗太大 / 留白太多 / 太长 / 太短 / 不够圆」**：宽度贴着内容（340–400）、高度按正文
-> 行数自适应（单行 ≈ 54），底部只留 7px、图标 34px。**圆角上限 = 卡片高度的一半**，所以「更圆」
+> **关于「弹出窗太大 / 留白太多 / 太长 / 太短 / 不够圆」**：宽度贴着内容（310–350）、高度按正文
+> 行数自适应（单行 ≈ 62），上下留白对称（14 / 12）、图标 38px。**圆角上限 = 卡片高度的一半**，所以「更圆」
 > 需要卡片略高；脚本还会先声明 **DPI 感知**（`SetProcessDPIAware`）
 > 再按 `DpiX / 96` 缩放全部版式。想钉死尺寸：`bannerMinWidth` = `bannerWidth` 固定宽，
 > `bannerHeight` > 0 固定高。不做这一步时，150% / 200% 缩放的屏幕上 Windows 会把
@@ -309,8 +309,8 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 | `openUrl` | `http://127.0.0.1:3080` | 点击通知打开的地址（仅 terminal-notifier 支持） |
 | `windowsStyle` | `banner` | Windows 通知形态：`banner`（自绘弹出窗，不受专注助手影响）或 `toast`（系统通知，进通知中心） |
 | `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
-| `bannerWidth` | `400` | banner 宽度上限（逻辑像素） |
-| `bannerMinWidth` | `340` | banner 宽度下限 |
+| `bannerWidth` | `350` | banner 宽度上限（逻辑像素） |
+| `bannerMinWidth` | `310` | banner 宽度下限 |
 | `bannerRadius` | `40` | banner 圆角半径（上限 = 高度一半） |
 | `bannerHeight` | `0` | banner 高度：`0` = 按正文行数自适应（推荐）；正数 = 固定高度 |
 | `bannerDurationMs` | `8000` | banner 自动关闭毫秒数；`0` = 一直显示到手动关闭 |

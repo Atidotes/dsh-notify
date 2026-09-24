@@ -111,12 +111,12 @@ const DEFAULT_CONFIG = {
   /** banner 模式的位置：topright / topleft / bottomright / bottomleft。 */
   bannerPosition: 'topright',
   /**
-   * banner 模式的宽度**上限**（96 DPI 下的逻辑像素）：默认 400。
+   * banner 模式的宽度**上限**（96 DPI 下的逻辑像素）：默认 350。
    * 卡片会按标题/正文里更长的那条自己收窄（最短 `bannerMinWidth`），不会留一截空白。
    */
-  bannerWidth: 400,
+  bannerWidth: 350,
   /** banner 模式的宽度**下限**：想钉死宽度就把 `bannerMinWidth` 和 `bannerWidth` 设成同一个值。 */
-  bannerMinWidth: 340,
+  bannerMinWidth: 310,
   /** 卡片圆角半径（96 DPI 下的逻辑像素）；会被自动限制在「卡片高度的一半」以内。 */
   bannerRadius: 40,
   /**
@@ -338,7 +338,7 @@ export function powershellToastScript(title, body, appId, iconPath) {
  *
  * 外观对齐 macOS 通知横幅，但**卡片贴着内容走**：宽度按标题/正文里更长的那条量出来
  * （默认 240–360 之间，不再固定 360 留一截空白），高度 = 标题 + 正文实际行高 + 5px；
- * 34×34 应用图标、13px 半粗标题 + 12px 正文、圆角（最大 = 卡片高度一半，即胶囊）浅色卡片。
+ * 38×38 应用图标、13px 半粗标题 + 12px 正文、圆角（取满 = 卡片高度一半，胶囊形）浅色卡片。
  *
  * **DPI**：不调 `SetProcessDPIAware` 时，Windows 在 150% / 200% 缩放的屏幕上会把整个
  * 窗口当位图放大 —— 又大又糊（这是「弹出窗太大」的真正原因）。所以脚本先声明 DPI
@@ -383,7 +383,7 @@ export function powershellBannerScript(options) {
    * 卡片宽度：options.width 是**上限**，再按标题/正文里更长的那条收窄，下限 options.minWidth。
    * 想钉死宽度就把 minWidth 和 width 设成同一个值。
    */
-  const minWidth = Number.isFinite(options.minWidth) && options.minWidth > 0 ? Math.round(options.minWidth) : 340
+  const minWidth = Number.isFinite(options.minWidth) && options.minWidth > 0 ? Math.round(options.minWidth) : 310
   /** 圆角半径：越大越圆；构建 Region 时会夹到「高度的一半」以内，避免矮卡片画歪。 */
   const radius = Number.isFinite(options.radius) && options.radius > 0 ? Math.round(options.radius) : 40
   /**
@@ -407,12 +407,12 @@ export function powershellBannerScript(options) {
     // 版式基准（96 DPI）：紧贴内容 —— 左右内边距 10、图标 34、标题 13px、正文 12px、
     // **底部只留 5**（正文下面那块空白是「留白太多」的来源）
     `$W = ${px(width)}; $minW = ${px(minWidth)}`,
-    `$m = ${px(margin)}; $r = ${px(radius)}; $pad = ${px(10)}; $rightPad = ${px(16)}; $icon = ${px(34)}; $gap = ${px(10)}`,
-    `$titleTop = ${px(12)}; $titleH = ${px(17)}; $bodyTop = ${px(31)}; $bottomPad = ${px(7)}`,
+    `$m = ${px(margin)}; $r = ${px(radius)}; $pad = ${px(10)}; $rightPad = ${px(16)}; $icon = ${px(38)}; $gap = ${px(10)}`,
+    `$titleTop = ${px(14)}; $titleH = ${px(17)}; $bodyTop = ${px(34)}; $bottomPad = ${px(12)}`,
     fitHeight
       // 自适应：先按「单行正文」估高，后面量出真实行数再定稿
       ? `$bodyH = ${px(16)}; $H = $bodyTop + $bodyH + $bottomPad`
-      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - ${px(7)}`,
+      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - ${px(12)}`,
     // 浅色/深色跟随 Windows 应用主题（macOS 通知也跟随系统外观）
     '$light = 1',
     soft("$light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme"),
