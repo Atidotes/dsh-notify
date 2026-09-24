@@ -400,7 +400,9 @@ window.__ModuleLoader__.load({
       'v.bannerPosition.bottomright': '右下角', 'v.bannerPosition.bottomleft': '左下角',
       'save': '保存', 'saving': '保存中…', 'discard': '放弃修改',
       'reset': '重置', 'overridden': '已自定义',
-      'saveFailed': '保存失败，请重试', 'unavailable': '配置服务不可用', 'readOnly': '当前连接不可写', 'loading': '正在读取配置…',
+      'saveFailed': '保存失败，请重试', 'readOnly': '当前连接不可写', 'loading': '正在读取配置…',
+      'unavailableRemote': '配置只能在通过本机地址（127.0.0.1 / localhost）打开的页面里修改 —— 当前页面不是本机地址。',
+      'unavailableHost': '暂时读不到配置：插件宿主可能还在跑旧模块，完全重启 DSH 后刷新页面再试。',
       'dirty': '有未保存的修改',
     }
 
@@ -456,7 +458,9 @@ window.__ModuleLoader__.load({
       'v.bannerPosition.bottomright': 'Bottom right', 'v.bannerPosition.bottomleft': 'Bottom left',
       'save': 'Save', 'saving': 'Saving…', 'discard': 'Discard',
       'reset': 'Reset', 'overridden': 'Customized',
-      'saveFailed': 'Save failed, please retry', 'unavailable': 'Configuration service unavailable', 'readOnly': 'This connection is read-only', 'loading': 'Loading configuration…',
+      'saveFailed': 'Save failed, please retry', 'readOnly': 'This connection is read-only', 'loading': 'Loading configuration…',
+      'unavailableRemote': 'Configuration can only be edited from a page opened on this machine (127.0.0.1 / localhost).',
+      'unavailableHost': 'Configuration is not readable yet: the plugin host may still run the old module — restart DSH and refresh.',
       'dirty': 'Unsaved changes',
     }
 
@@ -589,7 +593,9 @@ window.__ModuleLoader__.load({
         else setFailed(true)
       }
 
-      if (snapshot.status === 'unavailable') return h('p', { className: 'dsn-cfg-note' }, t('unavailable'))
+      if (snapshot.status === 'unavailable') {
+        return h('p', { className: 'dsn-cfg-note' }, snapshot.mode === 'memory' ? t('unavailableRemote') : t('unavailableHost'))
+      }
       if (snapshot.status === 'loading' && snapshot.value === undefined) return h('p', { className: 'dsn-cfg-note' }, t('loading'))
       return h('div', { className: 'dsn-cfg' },
         CONFIG_GROUPS.map((group) => h('section', { key: group.id, className: 'dsn-cfg-group' },

@@ -940,7 +940,7 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
       ...card.CONFIG_FIELDS.flatMap((field) => [`f.${field.key}`, `h.${field.key}`]),
       ...card.CONFIG_FIELDS.filter((field) => field.kind === 'enum')
         .flatMap((field) => (field.values ?? []).map((value) => `v.${field.key}.${value}`)),
-      'save', 'saving', 'discard', 'reset', 'overridden', 'saveFailed', 'unavailable', 'readOnly', 'loading', 'dirty',
+      'save', 'saving', 'discard', 'reset', 'overridden', 'saveFailed', 'unavailableRemote', 'unavailableHost', 'readOnly', 'loading', 'dirty',
     ]
     for (const [name, dict] of [['zh', card.CONFIG_ZH], ['en', card.CONFIG_EN]]) {
       const gaps = needed.filter((key) => typeof dict[key] !== 'string' || dict[key] === '')
