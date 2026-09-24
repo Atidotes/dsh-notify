@@ -154,6 +154,9 @@ for (const [needle, label] of [
   ["key: 'approval'", '开关字段'], ["key: 'minRunMs'", '触发时机字段'],
   ["key: 'windowsStyle'", '提醒类型字段'], ["key: 'titleFrom'", '文案字段'],
   ["key: 'bannerWidth'", '长度字段'], ["key: 'bannerRadius'", '圆角字段'],
+  ["key: 'snippetChars'", '文案-提问片段长度字段'], ["key: 'linuxUrgentUrgency'", 'Linux 通知级别字段'],
+  ["'command', 'banner'", '通道选项含自定义命令（README 里那条路不能被 schema 吃掉）'],
+  ['dsn-cfg-showall', '「显示所有平台的字段」开关（平台隐藏的字段仍可改）'],
 ]) {
   if (clientSource.includes(needle)) ok(`配置卡含${label}（${needle}）`)
   else bad(`配置卡缺${label}`)

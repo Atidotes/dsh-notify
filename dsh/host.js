@@ -170,13 +170,15 @@ export const Config = Schema.object({
   // ③ 提醒类型：Windows 自绘弹出窗 / 系统通知；以及通道选择
   windowsStyle: Schema.union(['banner', 'toast']).default('banner').volatile(),
   backend: Schema.union([
-    'auto', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send',
+    // 'command' 需要 config.json 里的 argv 模板（command 是数组，不进表单）
+    'auto', 'command', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send',
   ]).default('auto').volatile(),
   // ④ 文案
   titleFrom: Schema.union(['app', 'project']).default('app').volatile(),
   fallbackName: Schema.string().default('DeepSeek Harness').volatile(),
   subtitle: Schema.string().default('').volatile(),
   sound: Schema.string().default('Glass').volatile(),
+  snippetChars: Schema.number().min(0).max(120).step(1).default(24).volatile(),
   // ⑤ Windows 弹出窗外观（长度 / 圆角 / 高度 / 位置 / 停留时长）
   bannerPosition: Schema.union(['topright', 'topleft', 'bottomright', 'bottomleft']).default('topright').volatile(),
   bannerWidth: Schema.number().min(160).max(1_200).step(10).default(350).volatile(),
@@ -184,6 +186,8 @@ export const Config = Schema.object({
   bannerRadius: Schema.number().min(0).max(200).step(1).default(40).volatile(),
   bannerHeight: Schema.number().min(0).max(400).step(1).default(0).volatile(),
   bannerDurationMs: Schema.number().min(0).max(60_000).step(500).default(8_000).volatile(),
+  // Linux：notify-send 的紧急级别（其余平台不显示）
+  linuxUrgentUrgency: Schema.union(['critical', 'normal', 'low']).default('critical').volatile(),
 })
 
 /** AppleScript 的固定头部：用 argv 收参，因此没有任何转义问题。 */
@@ -897,8 +901,11 @@ export function apply(ctx, config = {}) {
    * 探测可用通道。**只缓存成功结果**：subprocess 可能晚于本插件注册，
    * 把「暂时没有服务」也缓存下来，会让之后所有通知都静默失败。
    */
-  function resolveBackend() {
+  async function resolveBackend() {
     if (backendPromise) return backendPromise
+    // config.json 里的 snoretoastCommand 等键参与通道选择：先等文件读完再探测，
+    // 否则探测会抢在文件之前、结果还被缓存（装了 SnoreToast 却一直走 PowerShell Toast）。
+    await configReady
     const attempt = (async () => {
       const subprocess = subprocessService()
       if (!subprocess || typeof subprocess.spawn !== 'function') return undefined

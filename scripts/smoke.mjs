@@ -968,7 +968,7 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     } else {
       bad(`Linux 字段筛选不对：${linux.join(', ')}`)
     }
-    if (unknown.every((key) => ['approval', 'question', 'done', 'minRunMs', 'remindEveryMs', 'maxReminders', 'backend', 'titleFrom', 'fallbackName', 'subtitle'].includes(key))) {
+    if (unknown.every((key) => ['approval', 'question', 'done', 'minRunMs', 'remindEveryMs', 'maxReminders', 'backend', 'titleFrom', 'fallbackName', 'subtitle', 'snippetChars'].includes(key))) {
       ok('平台未知时只显示跨平台字段（不猜平台）')
     } else {
       bad(`平台未知时的字段不对：${unknown.join(', ')}`)
@@ -1012,6 +1012,38 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
       bad(`配置卡注册不对：${JSON.stringify(entry?.options)}`)
     }
   }
+}
+
+// --- 19. 回归：'command' 通道可用 + 探测前会等配置文件读完 -------------------
+{
+  // ① backend='command' 必须还在 schema 里：README「自定义命令」那条路不能被吃掉
+  const configured = Config({ backend: 'command' })
+  if (configured.backend.get() === 'command') ok("schema 接受 backend='command'（README 的自定义命令未被吃掉）")
+  else bad(`schema 丢掉了 backend='command'：${String(configured.backend.get())}`)
+
+  captured.length = 0
+  const bench = makeCtx({ sessions: { 'session-23': { header: { cwd: '/tmp/cmd' } } } })
+  apply(bench.ctx, Object.assign(Config({ backend: 'command', remindEveryMs: 0 }), { command: ['/bin/echo', '自定义命令'] }))
+  await bench.call('approval/request', { agent: { id: 'session-23' }, toolName: 'bash' })
+  await settle()
+  if (captured.some((argv) => argv[0] === '/bin/echo' && argv.includes('自定义命令'))) {
+    ok('backend=command 时真的走 config.json 的 argv 模板')
+  } else {
+    bad(`backend=command 没有生效：${JSON.stringify(captured.map((a) => a[0]))}`)
+  }
+
+  // ② 通道探测必须等 config.json 读完：否则文件里的 snoretoastCommand 赶不上探测并被缓存
+  const dir = tmpNotifierDir()
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${dir}/config.json`, JSON.stringify({ snoretoastCommand: 'C:\\tools\\SnoreToast.exe' }), 'utf8')
+  const race = makeCtx({ sessions: { 'session-24': { header: { cwd: 'C:\\work\\proj' } } } })
+  await withPlatform('win32', async () => {
+    apply(race.ctx, Config({ remindEveryMs: 0, notifierDir: dir }))
+  })
+  await settle()
+  const diag = (await race.route(`${FEED_PATH}?since=0`))?.diag ?? {}
+  if (diag.backend === 'snoretoast') ok('探测等到了 config.json：snoretoastCommand 生效（backend=snoretoast）')
+  else bad(`config.json 的 snoretoastCommand 没赶上探测：backend=${String(diag.backend)}`)
 }
 
 console.log('')

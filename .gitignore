@@ -1,3 +1,4 @@
 .pstools/
 .smoke-tmp/
 node_modules/
+package-lock.json

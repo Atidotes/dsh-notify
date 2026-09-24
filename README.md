@@ -72,34 +72,9 @@ Windows 的通知位置由系统固定在**右下角**，微软明确表示没�
 SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只能自己画一个窗口 ——
 这就是 Windows 的**默认形态** `banner`：
 
-### 在 GUI 里改（推荐）
+### Windows 弹出窗的配置与外观
 
-打开 **侧边栏 → Plugins → 消息通知（dsh-notify）**，插件详情页里就是配置卡，分五组：
 
-| 分组 | 字段 | 平台 |
-|---|---|---|
-| **通知开关** | 需要审批时通知 / 需要回答时通知 / 任务完成时通知 | 全平台 |
-| **触发时机** | 最短运行时长、重复提醒间隔、最多提醒次数 | 全平台 |
-| **提醒类型** | 通知通道；Windows 提醒形态（自绘弹出窗 / 系统通知） | 通道按平台列；形态仅 Windows |
-| **文案** | 标题取什么（固定应用名 / 项目目录名）、固定标题、副标题；提示音 | 提示音仅 macOS |
-| **Windows 弹出窗外观** | 最大宽度、最小宽度、圆角、高度、位置、停留时长 | 仅 Windows |
-
-**按平台显示**：卡片读宿主平台（来自 `/dsh-notify/feed` 的 `diag.platform`），
-macOS 上不显示 Windows 弹出窗那一整组、也不显示只在 Windows 存在的通道；
-Windows 上不显示 macOS 提示音；「通知通道」下拉只列当前平台真实存在的通道
-（darwin: auto/osascript/terminal-notifier；win32: auto/banner/powershell/snoretoast；
-linux: auto/notify-send）。平台还没识别出来时只显示跨平台字段，不会先显示再消失。
-
-改完点保存：写进 profile 的 `~/.dsh/profiles/web/cordis.patch.yml`，由 volatile HMR
-**原地生效 —— 不用重启 DSH**（只有 `backend` / `windowsStyle` 这类影响通道选择的字段会
-触发一次自动重新探测）。每行右侧的「已自定义」标签可以一键**重置**回默认值。
-
-> **优先级**：GUI（= profile patch）> `config.json` > 内置默认值。
-> 上面这些字段由 GUI 管理，所以**在 `config.json` 里写同名键无效**（会在诊断的
-> `configConflicts` 里列出来提醒你）。`command`、`iconPath`、`notifierDir`、
-> `windowsAppId` 等高级键**不在 GUI 里**，继续走下面的配置文件。
-
-### 用配置文件改高级项
 
 配置文件：`~/.dsh/dsh-notify/config.json`（Windows：`%USERPROFILE%\.dsh\dsh-notify\config.json`）。
 **必须是严格 JSON —— 不能带注释**，带注释会解析失败、整个文件被忽略（回退到默认值）。
@@ -220,7 +195,7 @@ npm run windows-check
   `powershell.exe`（5.1）优先，`windows-check` 第 2 段可以单独验证 Toast 路线。
 
 > ⚠️ 诚实说明：Windows / Linux 后端是按两平台的官方机制实现、并用**参数级单元测试**
-> 覆盖的（59 条冒烟里 7 条直接覆盖这两个平台），但我手上没有 Windows/Linux 机器做真机验证。
+> 覆盖的（87 条冒烟里 24 条覆盖 Windows / Linux / 平台分支），但我手上没有 Windows/Linux 机器做真机验证。
 > macOS 那条路是真机跑通的；Windows 上出问题就用 `npm run windows-check` 生成的两段
 > 自检脚本（就是插件真正会 spawn 的那两条命令）在真机上单独验。
 
@@ -308,6 +283,49 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 
 ## 配置
 
+配置有三个来源，优先级从高到低：
+
+```
+GUI 配置卡（写进 profile 的 cordis.patch.yml）
+  > ~/.dsh/dsh-notify/config.json
+    > dsh/host.js 里的 DEFAULT_CONFIG
+```
+
+> ⚠️ **GUI 管理的键，在 `config.json` 里写同名值是无效的**（会被忽略，并在诊断的
+> `diag.configConflicts` 里列出来）。GUI 目前管理这 20 个键：
+> `approval` `question` `done` `minRunMs` `remindEveryMs` `maxReminders` `backend`
+> `windowsStyle` `linuxUrgentUrgency` `titleFrom` `fallbackName` `subtitle` `sound`
+> `snippetChars` `bannerPosition` `bannerWidth` `bannerMinWidth` `bannerRadius`
+> `bannerHeight` `bannerDurationMs`。
+> 其余键继续走 `config.json`：`command`（argv 模板）、`iconPath` / `iconPngPath`、
+> `notifierDir`、`appName`、`snoretoastCommand`、`windowsAppId`、`openUrl`、
+> `feedPath` / `streamPath`、`detailChars`、`includeSubagents` 等。
+>
+> 平台专属的字段默认只在对应平台上显示；在卡片顶部打开「显示所有平台的字段」就能在
+> 任何平台上看到并预配置它们（比如在 macOS 上先把 Windows 弹出窗参数配好）。
+
+### 在 GUI 里改（推荐）
+
+打开 **侧边栏 → Plugins → 消息通知（dsh-notify）**，插件详情页里就是配置卡，分五组：
+
+| 分组 | 字段 | 平台 |
+|---|---|---|
+| **通知开关** | 需要审批时通知 / 需要回答时通知 / 任务完成时通知 | 全平台 |
+| **触发时机** | 最短运行时长、重复提醒间隔、最多提醒次数 | 全平台 |
+| **提醒类型** | 通知通道；Windows 提醒形态（自绘弹出窗 / 系统通知） | 通道按平台列；形态仅 Windows |
+| **文案** | 标题取什么（固定应用名 / 项目目录名）、固定标题、副标题；提示音 | 提示音仅 macOS |
+| **Windows 弹出窗外观** | 最大宽度、最小宽度、圆角、高度、位置、停留时长 | 仅 Windows |
+
+**按平台显示**：卡片读宿主平台（来自 `/dsh-notify/feed` 的 `diag.platform`），
+macOS 上不显示 Windows 弹出窗那一整组、也不显示只在 Windows 存在的通道；
+Windows 上不显示 macOS 提示音；「通知通道」下拉只列当前平台真实存在的通道
+（darwin: auto/osascript/terminal-notifier；win32: auto/banner/powershell/snoretoast；
+linux: auto/notify-send）。平台还没识别出来时只显示跨平台字段，不会先显示再消失。
+
+改完点保存：写进 profile 的 `~/.dsh/profiles/web/cordis.patch.yml`，由 volatile HMR
+**原地生效 —— 不用重启 DSH**（只有 `backend` / `windowsStyle` 这类影响通道选择的字段会
+触发一次自动重新探测）。每行右侧的「已自定义」标签可以一键**重置**回默认值。
+
 默认值写在 `dsh/host.js` 的 `DEFAULT_CONFIG` 里，也可以用**外部配置文件**覆盖（不改代码、各平台一致）：
 
 ```json
@@ -388,8 +406,8 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 ## 自检与验证
 
 ```bash
-npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE 断言
-npm run smoke                    # host 半逻辑自测（59 条断言：真机 bug 回归 + 跨平台分支）
+npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（69 条）
+npm run smoke                    # host 半逻辑自测（87 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）

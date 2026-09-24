@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
       '.dsn-hint button { flex: none; border: none; border-radius: 6px; padding: 3px 9px; background: #07c160; color: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }',
       // 配置卡（Plugins → dsh-notify → 配置区）：面板 + 分组 + 平台徽标
       '.dsn-cfg { display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--dsw-alias-label-primary, inherit); }',
+      '.dsn-cfg-showall { display: flex; align-items: center; gap: 8px; padding: 0 2px; font-size: 12px; color: var(--dsw-alias-label-secondary, inherit); cursor: pointer; }',
       '.dsn-cfg-panel { border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22)); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,.04)); padding: 4px 14px; }',
       '.dsn-cfg-group { padding: 12px 0; }',
       '.dsn-cfg-group + .dsn-cfg-group { border-top: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.18)); }',
@@ -386,7 +387,7 @@ window.__ModuleLoader__.load({
       win32: ['auto', 'banner', 'powershell', 'snoretoast'],
       linux: ['auto', 'notify-send'],
     }
-    const BACKEND_ALL = ['auto', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send']
+    const BACKEND_ALL = ['auto', 'command', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send']
 
     /**
      * 配置字段（与 dsh/host.js 的 Config schema 一一对应）。
@@ -401,10 +402,12 @@ window.__ModuleLoader__.load({
       { group: 'timing', key: 'maxReminders', kind: 'number' },
       { group: 'type', key: 'backend', kind: 'enum', values: BACKEND_ALL },
       { group: 'type', key: 'windowsStyle', kind: 'enum', values: ['banner', 'toast'], platforms: WINDOWS_ONLY },
+      { group: 'type', key: 'linuxUrgentUrgency', kind: 'enum', values: ['critical', 'normal', 'low'], platforms: ['linux'] },
       { group: 'copy', key: 'titleFrom', kind: 'enum', values: ['app', 'project'] },
       { group: 'copy', key: 'fallbackName', kind: 'text' },
       { group: 'copy', key: 'subtitle', kind: 'text' },
       { group: 'copy', key: 'sound', kind: 'text', platforms: ['darwin'] },
+      { group: 'copy', key: 'snippetChars', kind: 'number' },
       { group: 'look', key: 'bannerWidth', kind: 'number', platforms: WINDOWS_ONLY },
       { group: 'look', key: 'bannerMinWidth', kind: 'number', platforms: WINDOWS_ONLY },
       { group: 'look', key: 'bannerRadius', kind: 'number', platforms: WINDOWS_ONLY },
@@ -470,7 +473,8 @@ window.__ModuleLoader__.load({
       'v.windowsStyle.toast': '系统通知',
       'f.backend': '通知通道',
       'h.backend': '自动 = 按平台挑最合适的通道',
-      'v.backend.auto': '自动', 'v.backend.banner': '自绘弹出窗', 'v.backend.powershell': 'PowerShell Toast',
+      'v.backend.auto': '自动', 'v.backend.command': '自定义命令（需在 config.json 里配 command 模板）',
+      'v.backend.banner': '自绘弹出窗', 'v.backend.powershell': 'PowerShell Toast',
       'v.backend.snoretoast': 'SnoreToast', 'v.backend.osascript': 'AppleScript（macOS）',
       'v.backend.terminal-notifier': 'terminal-notifier（macOS）', 'v.backend.notify-send': 'notify-send（Linux）',
       'f.titleFrom': '标题取什么',
@@ -490,6 +494,13 @@ window.__ModuleLoader__.load({
       'h.bannerRadius': '越大越圆；上限是卡片高度的一半（= 胶囊形）',
       'f.bannerHeight': '高度',
       'h.bannerHeight': '0 = 按正文行数自适应；填正数则固定高度',
+      'f.linuxUrgentUrgency': 'Linux 通知级别',
+      'h.linuxUrgentUrgency': 'notify-send 的 -u 级别；critical 更不容易被自动收起',
+      'v.linuxUrgentUrgency.critical': 'critical（紧急）', 'v.linuxUrgentUrgency.normal': 'normal（普通）', 'v.linuxUrgentUrgency.low': 'low（低）',
+      'f.snippetChars': '提问片段长度',
+      'h.snippetChars': '横幅里附带多少字的提问内容（越小越简洁）',
+      'showAll': '显示所有平台的字段',
+      'h.showAll': '默认只显示当前平台的配置；打开后可以看到并预配置其它平台的字段',
       'f.bannerPosition': '位置',
       'h.bannerPosition': '弹出窗贴屏幕的哪个角',
       'f.bannerDurationMs': '停留时长（毫秒）',
@@ -530,7 +541,8 @@ window.__ModuleLoader__.load({
       'v.windowsStyle.toast': 'System notification',
       'f.backend': 'Delivery channel',
       'h.backend': 'auto picks the best channel for the platform',
-      'v.backend.auto': 'Auto', 'v.backend.banner': 'Self-drawn popup', 'v.backend.powershell': 'PowerShell Toast',
+      'v.backend.auto': 'Auto', 'v.backend.command': 'Custom command (needs a command template in config.json)',
+      'v.backend.banner': 'Self-drawn popup', 'v.backend.powershell': 'PowerShell Toast',
       'v.backend.snoretoast': 'SnoreToast', 'v.backend.osascript': 'AppleScript (macOS)',
       'v.backend.terminal-notifier': 'terminal-notifier (macOS)', 'v.backend.notify-send': 'notify-send (Linux)',
       'f.titleFrom': 'Title source',
@@ -550,6 +562,13 @@ window.__ModuleLoader__.load({
       'h.bannerRadius': 'Rounder when larger; capped at half the card height (capsule)',
       'f.bannerHeight': 'Height',
       'h.bannerHeight': '0 = fit the body lines; a positive value pins the height',
+      'f.linuxUrgentUrgency': 'Linux urgency',
+      'h.linuxUrgentUrgency': 'notify-send -u level; critical is harder to auto-dismiss',
+      'v.linuxUrgentUrgency.critical': 'critical', 'v.linuxUrgentUrgency.normal': 'normal', 'v.linuxUrgentUrgency.low': 'low',
+      'f.snippetChars': 'Question snippet length',
+      'h.snippetChars': 'How many characters of a question the banner carries (smaller = cleaner)',
+      'showAll': 'Show settings for every platform',
+      'h.showAll': 'By default only the current platform is shown; enable to view and pre-configure other platforms',
       'f.bannerPosition': 'Position',
       'h.bannerPosition': 'Which screen corner the popup sticks to',
       'f.bannerDurationMs': 'Dismiss after (ms)',
@@ -562,6 +581,25 @@ window.__ModuleLoader__.load({
       'unavailableRemote': 'Configuration can only be edited from a page opened on this machine (127.0.0.1 / localhost).',
       'unavailableHost': 'Configuration is not readable yet: the plugin host may still run the old module — restart DSH and refresh.',
       'dirty': 'Unsaved changes',
+    }
+
+    /** 「显示所有平台的字段」偏好（localStorage；不可用时静默丢弃）。 */
+    const SHOW_ALL_KEY = 'dsh-notify/show-all-platforms'
+
+    function readShowAll() {
+      try {
+        return globalThis.localStorage?.getItem(SHOW_ALL_KEY) === '1'
+      } catch {
+        return false
+      }
+    }
+
+    function writeShowAll(value) {
+      try {
+        globalThis.localStorage?.setItem(SHOW_ALL_KEY, value ? '1' : '0')
+      } catch {
+        // 隐私模式写不进去，忽略
+      }
     }
 
     /**
@@ -661,6 +699,7 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = React.useState(null)
       const [saving, setSaving] = React.useState(false)
       const [failed, setFailed] = React.useState(false)
+      const [showAll, setShowAll] = React.useState(readShowAll)
       if (view !== 'page') return null
       const current = snapshot.value ?? {}
       const user = snapshot.user ?? {}
@@ -713,14 +752,23 @@ window.__ModuleLoader__.load({
       }
       if (snapshot.status === 'loading' && snapshot.value === undefined) return h('p', { className: 'dsn-cfg-note' }, t('loading'))
 
-      // 只显示当前宿主平台上真实存在的字段 / 分组（Windows 专属那一组在 macOS 上整组不出现）
-      const visible = fieldsForPlatform(platform)
+      // 默认只显示当前宿主平台上真实存在的字段 / 分组（Windows 专属那一组在 macOS 上整组不出现）；
+      // 打开顶部开关后可以看到并预配置其它平台的字段（它们在其它的平台上才会生效）。
+      const effective = showAll ? undefined : platform
+      const visible = showAll ? CONFIG_FIELDS : fieldsForPlatform(platform)
       const groups = CONFIG_GROUPS
-        .filter((group) => group.platforms === undefined || matchesPlatform(group, platform))
+        .filter((group) => showAll || group.platforms === undefined || matchesPlatform(group, effective))
         .filter((group) => visible.some((spec) => spec.group === group.id))
 
       return h('div', { className: 'dsn-cfg' },
-        platform === undefined ? h('p', { className: 'dsn-cfg-note' }, t('platformUnknown')) : null,
+        h('label', { className: 'dsn-cfg-showall' },
+          h('input', {
+            type: 'checkbox', className: 'dsn-cfg-check', checked: showAll,
+            onChange: (event) => { setShowAll(event.target.checked); writeShowAll(event.target.checked) },
+          }),
+          h('span', null, t('showAll')),
+        ),
+        !showAll && platform === undefined ? h('p', { className: 'dsn-cfg-note' }, t('platformUnknown')) : null,
         h('div', { className: 'dsn-cfg-panel' },
           groups.map((group) => h('section', { key: group.id, className: 'dsn-cfg-group' },
             h('div', { className: 'dsn-cfg-head' },
@@ -733,7 +781,7 @@ window.__ModuleLoader__.load({
                 spec,
                 t,
                 disabled,
-                options: spec.kind === 'enum' ? optionsFor(spec, platform, fieldValue(spec.key, draft, current)) : undefined,
+                options: spec.kind === 'enum' ? optionsFor(spec, effective, fieldValue(spec.key, draft, current)) : undefined,
                 value: fieldValue(spec.key, draft, current),
                 baseValue: snapshot.base?.[spec.key],
                 overridden: Object.hasOwn(user, spec.key),
