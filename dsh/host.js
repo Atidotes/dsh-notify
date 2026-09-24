@@ -32,13 +32,30 @@
 // 环形缓冲，并通过同源路由 `/dsh-notify/feed` 暴露，client 半轮询渲染。
 // 该路由同时返回诊断信息（通道、最近错误、最近命令），便于排查。
 
+import Schema from '@deepseek-ai/schemastery'
+
 export const name = 'dsh-notify'
 
 // 软依赖：subprocess / webServer 都可能不存在（headless / 精简 profile）。
 // 取不到就降级（没有系统通知 / 没有页面卡片），而不是让插件激活失败。
 export const inject = []
 
-const DEFAULT_CONFIG = {
+/**
+ * volatile 字段在 `apply(ctx, config)` 里是**引用**（`.get()` 读当前值），而且改完是原地更新、
+ * 不重挂插件。用一个 Proxy 在读取时解引用，这样 `cfg.x` 的既有写法全部照旧，
+ * GUI 里改完立刻对下一条通知生效。
+ */
+function liveConfig(base) {
+  return new Proxy(base, {
+    get(target, key) {
+      const value = Reflect.get(target, key)
+      if (value !== null && typeof value === 'object' && typeof value.get === 'function') return value.get()
+      return value
+    },
+  })
+}
+
+export const DEFAULT_CONFIG = {
   /** 审批请求是否通知。 */
   approval: true,
   /** ask_user_question 是否通知。 */
@@ -132,6 +149,42 @@ const DEFAULT_CONFIG = {
   /** 页面即时推送（SSE）的同源路由。 */
   streamPath: '/dsh-notify/stream',
 }
+
+/**
+ * 可配置字段的 schema：**只有标了 `.volatile()` 的字段会出现在 GUI 的插件配置卡里**
+ * （见 harness 的 settings 服务：`volatileForm()` 只投影 volatile 字段）。
+ *
+ * 这些字段的默认值必须与 {@link DEFAULT_CONFIG} 保持一致（smoke 里有断言防止漂移）。
+ * 高级键（`command`、`iconPath`、`notifierDir`、`windowsAppId` 等）刻意**不**进 schema：
+ * 它们继续走 `~/.dsh/dsh-notify/config.json`，不给配置卡添复杂控件。
+ */
+export const Config = Schema.object({
+  // ① 开关：三类通知各自是否弹出
+  approval: Schema.boolean().default(true).volatile(),
+  question: Schema.boolean().default(true).volatile(),
+  done: Schema.boolean().default(true).volatile(),
+  // ② 触发时机 / 提醒节奏
+  minRunMs: Schema.number().min(0).step(500).default(3_000).volatile(),
+  remindEveryMs: Schema.number().min(0).step(1_000).default(30_000).volatile(),
+  maxReminders: Schema.number().min(0).step(1).default(10).volatile(),
+  // ③ 提醒类型：Windows 自绘弹出窗 / 系统通知；以及通道选择
+  windowsStyle: Schema.union(['banner', 'toast']).default('banner').volatile(),
+  backend: Schema.union([
+    'auto', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send',
+  ]).default('auto').volatile(),
+  // ④ 文案
+  titleFrom: Schema.union(['app', 'project']).default('app').volatile(),
+  fallbackName: Schema.string().default('DeepSeek Harness').volatile(),
+  subtitle: Schema.string().default('').volatile(),
+  sound: Schema.string().default('Glass').volatile(),
+  // ⑤ Windows 弹出窗外观（长度 / 圆角 / 高度 / 位置 / 停留时长）
+  bannerPosition: Schema.union(['topright', 'topleft', 'bottomright', 'bottomleft']).default('topright').volatile(),
+  bannerWidth: Schema.number().min(160).max(1_200).step(10).default(350).volatile(),
+  bannerMinWidth: Schema.number().min(120).max(1_200).step(10).default(310).volatile(),
+  bannerRadius: Schema.number().min(0).max(200).step(1).default(40).volatile(),
+  bannerHeight: Schema.number().min(0).max(400).step(1).default(0).volatile(),
+  bannerDurationMs: Schema.number().min(0).max(60_000).step(500).default(8_000).volatile(),
+})
 
 /** AppleScript 的固定头部：用 argv 收参，因此没有任何转义问题。 */
 const OSA_HEAD = [
@@ -490,7 +543,11 @@ function sendJson(res, status, value) {
  * @param config - bundle patch 行里的 config（未声明时为空对象）。
  */
 export function apply(ctx, config = {}) {
-  const cfg = Object.assign({}, DEFAULT_CONFIG, config && typeof config === 'object' ? config : {})
+  /** loader/patch 层（= GUI 配置卡写入的那层）；schema 会把每个字段的默认值都填进来。 */
+  const fromLoader = config !== null && typeof config === 'object' ? config : {}
+  const cfg = liveConfig(Object.assign({}, DEFAULT_CONFIG, fromLoader))
+  /** config.json 里被 GUI/loader 接管的键（诊断用：文件里写这些键不会生效）。 */
+  const configConflicts = []
   const platform = (() => {
     try {
       return process.platform
@@ -603,7 +660,18 @@ export function apply(ctx, config = {}) {
       const text = await readTextFile(`${base}/config.json`)
       if (typeof text !== 'string' || text.trim() === '') return
       const parsed = JSON.parse(text)
-      if (parsed !== null && typeof parsed === 'object') Object.assign(cfg, parsed)
+      if (parsed === null || typeof parsed !== 'object') return
+      for (const [key, value] of Object.entries(parsed)) {
+        // GUI/loader 已经管着这个键：文件不再覆盖，避免"在界面里改了却不生效"。
+        if (Object.hasOwn(fromLoader, key)) {
+          configConflicts.push(key)
+          continue
+        }
+        cfg[key] = value
+      }
+      if (configConflicts.length > 0) {
+        console.warn(`[dsh-notify] config.json 里这些键已被 GUI 配置接管，文件值被忽略：${configConflicts.join('、')}`)
+      }
     } catch (error) {
       console.warn(`[dsh-notify] config.json 解析失败，已忽略：${describe(error)}`)
     }
@@ -736,6 +804,7 @@ export function apply(ctx, config = {}) {
                   lastStderr,
                   lastDeliveredAt,
                   lastFallback,
+                  configConflicts,
                   streams: streams.size,
                 },
               })
@@ -1601,4 +1670,24 @@ export function apply(ctx, config = {}) {
     })
   }
   probeBackend()
+
+  // GUI 配置卡改的是 volatile 字段：宿主原地更新引用、不重挂插件，所以这里要自己
+  // 把受影响的状态重新算一遍 —— 通道选择（backend / windowsStyle / 命令路径）改了
+  // 必须重新探测，否则「改完还是走旧通道」。
+  try {
+    ctx.on('loader/volatile-update', () => {
+      try {
+        const before = backendKind
+        backendPromise = undefined
+        backendKind = undefined
+        probeAttempts = 0
+        console.log(`[dsh-notify] 配置已更新，重新探测通知通道（原通道：${before ?? 'unresolved'}）`)
+        probeBackend()
+      } catch (error) {
+        console.warn(`[dsh-notify] 重新探测通道失败：${describe(error)}`)
+      }
+    })
+  } catch (error) {
+    console.warn(`[dsh-notify] 无法注册 volatile 更新监听：${describe(error)}`)
+  }
 }

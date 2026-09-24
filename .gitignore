@@ -1,2 +1,3 @@
 .pstools/
 .smoke-tmp/
+node_modules/

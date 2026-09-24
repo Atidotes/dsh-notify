@@ -74,8 +74,11 @@ for (const file of ['dsh/host.js', 'dsh/client.js']) {
 }
 
 const hostSource = existsSync(join(root, 'dsh/host.js')) ? readFileSync(join(root, 'dsh/host.js'), 'utf8') : ''
-if (/^\s*import\s/m.test(hostSource)) warn('dsh/host.js 出现了顶层 import；host 半的定位是零依赖')
-else ok('dsh/host.js 无顶层 import（无 npm 依赖）')
+// 配置卡需要 schemastery 声明 Config；除此之外 host 半仍然零依赖。
+const topImports = [...hostSource.matchAll(/^import\s+[^\n]*from\s+'([^']+)'/gm)].map(match => match[1])
+if (topImports.length === 0) warn('dsh/host.js 没有顶层 import（Config schema 缺失？配置卡会没有字段）')
+else if (topImports.every(spec => spec === '@deepseek-ai/schemastery')) ok(`dsh/host.js 的顶层 import 只有 schemastery（${topImports.length} 处）`)
+else bad(`dsh/host.js 引入了意料之外的顶层依赖：${topImports.join(', ')}`)
 const dynamicImports = [...hostSource.matchAll(/import\((['"])([^'"]+)\1\)/g)].map((m) => m[2])
 if (dynamicImports.length > 0 && dynamicImports.every((spec) => spec.startsWith('node:'))) {
   ok(`动态 import 只用 Node 内置模块（${dynamicImports.join(', ')}）`)
@@ -130,6 +133,31 @@ if (clientSource.includes('EventSource') && clientSource.includes('/dsh-notify/s
   ok('客户端半优先用 SSE 长连接（后台标签页不受轮询限流影响）')
 } else {
   bad('客户端半没有接上 SSE 推送')
+}
+
+// 配置卡：注册进 Plugins 页的 bundle 配置区，走 settings 的 configForms
+if (clientSource.includes("'plugins.bundle.config'") && clientSource.includes('configForms.get')) {
+  ok('客户端半把配置卡注册进 plugins.bundle.config（Plugins 页的插件详情）')
+} else {
+  bad('客户端半没有注册配置卡')
+}
+if (clientSource.includes('CONFIG_ZH') && clientSource.includes('CONFIG_EN')) {
+  ok('配置卡带中英双语词典')
+} else {
+  bad('配置卡缺少中英词典')
+}
+for (const [needle, label] of [
+  ["key: 'approval'", '开关字段'], ["key: 'minRunMs'", '触发时机字段'],
+  ["key: 'windowsStyle'", '提醒类型字段'], ["key: 'titleFrom'", '文案字段'],
+  ["key: 'bannerWidth'", '长度字段'], ["key: 'bannerRadius'", '圆角字段'],
+]) {
+  if (clientSource.includes(needle)) ok(`配置卡含${label}（${needle}）`)
+  else bad(`配置卡缺${label}`)
+}
+if (/require\((['"])@deepseek-ai\//.test(clientSource)) {
+  bad('客户端半 require 了非客户端模块行的包（浏览器里解析不到）')
+} else {
+  ok('客户端半只 require 能解析到的模块（react）')
 }
 if (clientSource.includes('requestPermission') && clientSource.includes('new api(')) {
   ok('客户端半带浏览器系统通知兜底 + 权限申请（只在 host 通道失效时启用）')

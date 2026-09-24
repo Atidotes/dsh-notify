@@ -16,10 +16,10 @@
  *   7. /dsh-notify/feed：首次只给游标，带 since 才回放条目，并带诊断
  */
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { apply } from '../dsh/host.js'
+import { apply, Config, DEFAULT_CONFIG } from '../dsh/host.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -830,6 +830,149 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   }
   if (d.lastFallback === undefined) ok('走 Toast 主通道时不会多此一举地再兜底一次')
   else bad(`不该出现兜底：${JSON.stringify(d.lastFallback)}`)
+}
+
+// --- 17. 配置卡：schema 默认值不漂移 + volatile 值生效 + 文件同名键被接管 ------
+{
+  // ① schema 里的默认值必须与 DEFAULT_CONFIG 一致（两处默认值漂移会让 GUI 显示错值）
+  const resolved = Config({})
+  const drifted = Object.keys(Config.dict).filter((key) => {
+    const live = resolved[key]
+    const value = live !== null && typeof live === 'object' && typeof live.get === 'function' ? live.get() : live
+    return value !== DEFAULT_CONFIG[key]
+  })
+  if (drifted.length === 0) ok(`配置卡 schema 的 ${Object.keys(Config.dict).length} 个字段默认值与 DEFAULT_CONFIG 一致`)
+  else bad(`schema 默认值与 DEFAULT_CONFIG 漂移：${drifted.join(', ')}`)
+
+  // ② loader（= GUI 配置卡）传来的 volatile 引用要按当前值读取
+  captured.length = 0
+  const bench = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-21': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    apply(bench.ctx, Config({ remindEveryMs: 0, bannerWidth: 420, bannerRadius: 60 }))
+  })
+  await bench.call('approval/request', { agent: { id: 'session-21' }, toolName: 'bash' })
+  await settle()
+  const banner = captured.find((argv) => String(argv[0]).includes('powershell'))
+  const script = banner?.find((part) => String(part).includes('ShowDialog')) ?? ''
+  if (script.includes('Round(420 * $scale)') && script.includes('Round(60 * $scale)')) {
+    ok('GUI 配置（volatile 引用）生效：bannerWidth=420 / bannerRadius=60 进了脚本')
+  } else {
+    bad('volatile 配置没有生效（还是默认值？）')
+  }
+
+  // ③ config.json 里与 GUI 同名的键要被接管（否则"界面改了不生效"）
+  const dir = tmpNotifierDir()
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${dir}/config.json`, JSON.stringify({ bannerWidth: 999, command: ['echo', 'hi'] }), 'utf8')
+  captured.length = 0
+  const fileBench = makeCtx({
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-22': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    apply(fileBench.ctx, Object.assign(Config({ remindEveryMs: 0, notifierDir: dir }), {}))
+  })
+  await fileBench.call('approval/request', { agent: { id: 'session-22' }, toolName: 'bash' })
+  await settle()
+  const fileScript = captured
+    .find((argv) => String(argv[0]).includes('powershell'))
+    ?.find((part) => String(part).includes('ShowDialog')) ?? ''
+  if (fileScript.includes('Round(350 * $scale)')) ok('config.json 里的同名键被 GUI 接管（文件值不生效）')
+  else bad('config.json 竟然覆盖了 GUI 的字段')
+  const fileDiag = (await fileBench.route(`${FEED_PATH}?since=0`))?.diag ?? {}
+  if (Array.isArray(fileDiag.configConflicts) && fileDiag.configConflicts.includes('bannerWidth')) {
+    ok(`诊断列出被接管的键：${fileDiag.configConflicts.join('、')}`)
+  } else {
+    bad(`诊断没有列出冲突键：${JSON.stringify(fileDiag.configConflicts)}`)
+  }
+}
+
+// --- 18. 配置卡（浏览器半）：字段 / 词典与宿主 schema 对齐，并真的注册到 slot ----
+{
+  // client.js 是浏览器模块：用假的 __ModuleLoader__ 把它 load 进来，再手工调 factory。
+  let spec
+  const previousWindow = globalThis.window
+  globalThis.window = { __ModuleLoader__: { load: (loaded) => { spec = loaded } } }
+  try {
+    await import('../dsh/client.js')
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+  }
+  if (spec?.id !== 'dsh-notify') {
+    bad(`client.js 没有以 dsh-notify 注册到模块加载器：${JSON.stringify(spec?.id)}`)
+  } else {
+    ok('client.js 仍是 lazy-CJS 工厂模块（id=dsh-notify）')
+  }
+
+  /** 极简 React 替身：只要 factory 能构造出组件与纯函数即可。 */
+  const fakeReact = {
+    createElement: () => null,
+    useCallback: (fn) => fn,
+    useState: () => [null, () => {}],
+    useSyncExternalStore: () => ({}),
+  }
+  const mod = spec.factory((id) => {
+    if (id === 'react') return fakeReact
+    throw new Error(`client.js 请求了不可解析的模块：${id}`)
+  })
+  const card = mod.internals
+  if (card === undefined) {
+    bad('client.js 没有导出 internals（无法校验配置卡）')
+  } else {
+    // ① 卡片字段与宿主 Config schema 必须一一对应
+    const hostKeys = Object.keys(Config.dict)
+    const cardKeys = card.CONFIG_FIELDS.map((field) => field.key)
+    const missing = hostKeys.filter((key) => !cardKeys.includes(key))
+    const extra = cardKeys.filter((key) => !hostKeys.includes(key))
+    if (missing.length === 0 && extra.length === 0) {
+      ok(`配置卡 ${cardKeys.length} 个字段与宿主 Config schema 完全一致`)
+    } else {
+      bad(`配置卡字段与 schema 不一致：缺 ${missing.join(', ') || '—'}；多 ${extra.join(', ') || '—'}`)
+    }
+
+    // ② 中英词典必须覆盖：分组标题 + 每个字段的标签/说明 + 每个枚举值 + 界面文案
+    const needed = [
+      ...card.CONFIG_GROUPS.map((group) => group.title),
+      ...card.CONFIG_FIELDS.flatMap((field) => [`f.${field.key}`, `h.${field.key}`]),
+      ...card.CONFIG_FIELDS.filter((field) => field.kind === 'enum')
+        .flatMap((field) => (field.values ?? []).map((value) => `v.${field.key}.${value}`)),
+      'save', 'saving', 'discard', 'reset', 'overridden', 'saveFailed', 'unavailable', 'readOnly', 'loading', 'dirty',
+    ]
+    for (const [name, dict] of [['zh', card.CONFIG_ZH], ['en', card.CONFIG_EN]]) {
+      const gaps = needed.filter((key) => typeof dict[key] !== 'string' || dict[key] === '')
+      if (gaps.length === 0) ok(`配置卡 ${name} 词典齐全（${needed.length} 个键）`)
+      else bad(`配置卡 ${name} 词典缺 ${gaps.length} 个键：${gaps.slice(0, 6).join(', ')}…`)
+    }
+
+    // ③ 草稿 diff / 取值逻辑
+    const diff = card.changedKeys({ bannerWidth: 420, approval: true }, { bannerWidth: 350, approval: false })
+    if (diff.length === 2 && diff.includes('bannerWidth')) ok('草稿 diff 只提交改动过的键')
+    else bad(`草稿 diff 不对：${JSON.stringify(diff)}`)
+    if (card.fieldValue('bannerWidth', { bannerWidth: 420 }, { bannerWidth: 350 }) === 420) ok('草稿值优先于宿主值')
+    else bad('草稿取值优先级不对')
+
+    // ④ 真的注册到 plugins.bundle.config，key 用包名
+    const registrations = []
+    const scope = {
+      slots: {
+        inject: (name, callback) => { callback() },
+        register: (options, component) => { registrations.push({ options, component }) },
+      },
+      locale: { register: () => () => {} },
+      configForms: { get: (ns) => ({ namespace: ns }) },
+    }
+    mod.apply({ inject: (names, callback) => { if (names.includes('configForms')) callback(scope) } })
+    const entry = registrations.find((row) => row.options.name === 'plugins.bundle.config')
+    if (entry?.options.key === 'dsh-notify' && entry.options.locale === 'dsh-notify' && typeof entry.component === 'function') {
+      ok('配置卡注册到 plugins.bundle.config（key=dsh-notify，带 locale 与组件）')
+    } else {
+      bad(`配置卡注册不对：${JSON.stringify(entry?.options)}`)
+    }
+  }
 }
 
 console.log('')

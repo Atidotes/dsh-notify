@@ -72,6 +72,29 @@ Windows 的通知位置由系统固定在**右下角**，微软明确表示没�
 SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只能自己画一个窗口 ——
 这就是 Windows 的**默认形态** `banner`：
 
+### 在 GUI 里改（推荐）
+
+打开 **侧边栏 → Plugins → 消息通知（dsh-notify）**，插件详情页里就是配置卡，分五组：
+
+| 分组 | 字段 |
+|---|---|
+| **通知开关** | 需要审批时通知 / 需要回答时通知 / 任务完成时通知 |
+| **触发时机** | 最短运行时长、重复提醒间隔、最多提醒次数 |
+| **提醒类型** | Windows 提醒形态（自绘弹出窗 / 系统通知）、通知通道 |
+| **文案** | 标题取什么（固定应用名 / 项目目录名）、固定标题、副标题、提示音 |
+| **Windows 弹出窗外观** | 最大宽度、最小宽度、圆角、高度、位置、停留时长 |
+
+改完点保存：写进 profile 的 `~/.dsh/profiles/web/cordis.patch.yml`，由 volatile HMR
+**原地生效 —— 不用重启 DSH**（只有 `backend` / `windowsStyle` 这类影响通道选择的字段会
+触发一次自动重新探测）。每行右侧的「已自定义」标签可以一键**重置**回默认值。
+
+> **优先级**：GUI（= profile patch）> `config.json` > 内置默认值。
+> 上面这些字段由 GUI 管理，所以**在 `config.json` 里写同名键无效**（会在诊断的
+> `configConflicts` 里列出来提醒你）。`command`、`iconPath`、`notifierDir`、
+> `windowsAppId` 等高级键**不在 GUI 里**，继续走下面的配置文件。
+
+### 用配置文件改高级项
+
 配置文件：`~/.dsh/dsh-notify/config.json`（Windows：`%USERPROFILE%\.dsh\dsh-notify\config.json`）。
 **必须是严格 JSON —— 不能带注释**，带注释会解析失败、整个文件被忽略（回退到默认值）。
 
@@ -226,6 +249,10 @@ dsh plugin --profile web add /Users/you/work/deepseek/deepseek-plugin/dsh-notify
 
 安装后 profile 的 `dsh.profile.bundles` 会多出 `dsh-notify`，`cordis.patch.yml` 自动生效，无需手改 profile。
 
+> **依赖**：本插件有一个运行时依赖 `@deepseek-ai/schemastery`（声明 GUI 配置卡的 `Config`
+> schema 用；harness 的 settings 服务只投影 schemastery schema）。用 plugin_manager / pnpm
+> 安装会自动装好；**如果是手工拷贝目录**，记得在插件目录里先 `npm install` 再装插件。
+
 > **改了代码要让运行中的 DSH 生效，必须重启一次 app。**
 > 已安装插件的 JS 模块在 host 进程里是按代际缓存的：单文件改动、禁用再启用、甚至移除后重装，都只会复用旧模块；`cordis.yml` 这类配置是热更新的，但模块不是。重启后浏览器再刷新一次页面（拿新的 client 半）。
 
@@ -346,6 +373,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
   Windows 上「弹的是右下角 Toast 还是右上角弹出窗」就由后两个值决定 —— 如果
   `windowsStyle` 是 `toast`，说明被 `config.json` 覆盖了（不是默认值 `banner`）。
 - `delivered` → 已 spawn 的通知命令数；`failed` → 其中**非 0 退出**的次数。
+- `configConflicts` → `config.json` 里被 GUI 接管的键（写了也不生效，列出来提醒你）。
 - `lastFallback` → 横幅失败后退回系统 Toast 时记 `toast`（区分「本来就该弹 Toast」和「兜底」）。
 - `lastError` / `lastExitCode` / `lastStderr` → 最近一次失败的原因、退出码、命令的 stderr 尾巴。
   PowerShell 出错时**退出码经常是 0**，所以脚本被包成「失败就非 0 退出 + 写 stderr」，
@@ -370,7 +398,12 @@ npm run smoke -- --real          # 真的弹出系统通知，确认通道可用
 - 通知全程 `try/catch`，且**永远**调用 `next()` 并透传下游结果：通知失败绝不影响审批流程，`next()` 抛错照常上抛。
 - `agent/status` 只在 `running → idle` 且运行时长 ≥ `minRunMs` 时通知。
 - 插件卸载时清掉所有提醒定时器、关闭所有推送流（`ctx.effect` 清理）。
-- 客户端不接管任何事件，也不渲染通知；它只在 host 通道失效时用浏览器补一条**系统**通知。
+- 客户端不接管任何事件，也不渲染通知卡片；它只在 host 通道失效时用浏览器补一条**系统**通知。
+- 客户端半另外注册 Plugins 页的配置卡（`plugins.bundle.config`）：字段与宿主 `Config` schema
+  一一对应（smoke 有断言防止漂移），中英词典必须齐全。
+- **唯一运行时依赖**是 `@deepseek-ai/schemastery`：GUI 配置卡需要用它声明 `Config`
+  （harness 的 settings 服务只投影 schemastery schema 里标了 `.volatile()` 的字段）。
+  除此之外 host 半仍是零依赖（`npm run check` 会断言顶层 import 只有它）。
 
 ## 已知限制
 
