@@ -147,6 +147,10 @@ if (clientSource.includes('CONFIG_ZH') && clientSource.includes('CONFIG_EN')) {
   bad('配置卡缺少中英词典')
 }
 for (const [needle, label] of [
+  ['border: solid #fff', '复选框自绘白色勾（不用系统绘制的黑色对勾）'],
+  ["type: 'text', inputMode: 'numeric'", '数字字段用普通文本框（不要原生数字框箭头）'],
+  ['.dsn-cfg-selectwrap', '下拉自绘箭头（去掉原生外观）'],
+  ['appearance: none; -webkit-appearance: none; -moz-appearance: none', '下拉去掉原生样式'],
   ["key: 'approval'", '开关字段'], ["key: 'minRunMs'", '触发时机字段'],
   ["key: 'windowsStyle'", '提醒类型字段'], ["key: 'titleFrom'", '文案字段'],
   ["key: 'bannerWidth'", '长度字段'], ["key: 'bannerRadius'", '圆角字段'],

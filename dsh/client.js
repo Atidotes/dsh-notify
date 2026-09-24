@@ -38,11 +38,20 @@ window.__ModuleLoader__.load({
       '.dsn-cfg-field > label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary, inherit); }',
       '.dsn-cfg-field > label.dsn-cfg-switch { font-size: 13px; color: var(--dsw-alias-label-primary, inherit); cursor: pointer; }',
       '.dsn-cfg-input, .dsn-cfg-field input[type="text"], .dsn-cfg-field input[type="number"], .dsn-cfg-field select { box-sizing: border-box; width: 100%; height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3)); background: var(--dsw-alias-bg-layer-2, transparent); color: inherit; font: inherit; font-size: 12px; }',
-      '.dsn-cfg-field select { cursor: pointer; }',
+      '.dsn-cfg-selectwrap { position: relative; display: block; }',
+      ".dsn-cfg-selectwrap::after { content: ''; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; margin-top: -4px; border-right: 1.5px solid var(--dsw-alias-label-tertiary, rgba(127,127,127,.95)); border-bottom: 1.5px solid var(--dsw-alias-label-tertiary, rgba(127,127,127,.95)); transform: rotate(45deg); pointer-events: none; }",
+      '.dsn-cfg-select { appearance: none; -webkit-appearance: none; -moz-appearance: none; padding-right: 30px; cursor: pointer; }',
+      '.dsn-cfg-select option { color: #111; background: #fff; }',
       '.dsn-cfg-field input:focus-visible, .dsn-cfg-field select:focus-visible { outline: 2px solid #07c160; outline-offset: 1px; }',
       '.dsn-cfg-field input:disabled, .dsn-cfg-field select:disabled { opacity: .55; }',
       '.dsn-cfg-hint { font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-tertiary, rgba(127,127,127,.9)); }',
-      '.dsn-cfg-check { flex: none; width: 15px; height: 15px; accent-color: #07c160; cursor: pointer; }',
+      '.dsn-cfg-check { appearance: none; -webkit-appearance: none; flex: none; width: 17px; height: 17px; margin: 0; border-radius: 5px; border: 1.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.5)); background: var(--dsw-alias-bg-layer-2, transparent); cursor: pointer; position: relative; transition: background-color .15s ease, border-color .15s ease; }',
+      '.dsn-cfg-check:hover { border-color: #07c160; }',
+      '.dsn-cfg-check:checked { background: #07c160; border-color: #07c160; }',
+      // 纯 CSS 白勾：右边 + 下边描边旋转 45°，不依赖系统绘制的对勾颜色
+      ".dsn-cfg-check:checked::after { content: ''; position: absolute; left: 5px; top: 1.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }",
+      '.dsn-cfg-check:focus-visible { outline: 2px solid #07c160; outline-offset: 1px; }',
+      '.dsn-cfg-check:disabled { opacity: .5; cursor: default; }',
       '.dsn-cfg-reset { border: none; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--dsw-alias-label-tertiary, rgba(127,127,127,.9)); cursor: pointer; text-decoration: underline; align-self: flex-start; }',
       '.dsn-cfg-badge { font-size: 10px; line-height: 15px; padding: 0 6px; border-radius: 999px; background: rgba(7,193,96,.14); color: #07c160; }',
       '.dsn-cfg-foot { display: flex; align-items: center; gap: 10px; padding-top: 2px; }',
@@ -590,20 +599,23 @@ window.__ModuleLoader__.load({
           onChange: (event) => props.onEdit(event.target.checked),
         })
       } else if (spec.kind === 'enum') {
-        control = h('select', {
-          value: value === undefined || value === null ? '' : String(value), disabled,
-          onChange: (event) => props.onEdit(event.target.value),
-        }, (props.options ?? spec.values ?? []).map((option) => h('option', { key: option, value: option },
-          t(`v.${spec.key}.${option}`))))
+        control = h('div', { className: 'dsn-cfg-selectwrap' },
+          h('select', {
+            className: 'dsn-cfg-select',
+            value: value === undefined || value === null ? '' : String(value), disabled,
+            onChange: (event) => props.onEdit(event.target.value),
+          }, (props.options ?? spec.values ?? []).map((option) => h('option', { key: option, value: option },
+            t(`v.${spec.key}.${option}`)))))
       } else if (spec.kind === 'number') {
+        // 普通文本框（type=number 会带原生上下箭头，样式不好看也难统一）
         control = h('input', {
-          type: 'number', inputMode: 'numeric', min: '0',
+          type: 'text', inputMode: 'numeric', autoComplete: 'off', spellCheck: false,
           value: value === undefined || value === null ? '' : String(value), disabled,
           onChange: (event) => {
             const text = event.target.value
             // 清空 = 回到默认层（否则会出现"输入框空了但什么都没改"的怪状态）
             if (text === '') props.onEdit(props.baseValue)
-            else if (Number.isFinite(Number(text))) props.onEdit(Number(text))
+            else if (/^\d+$/.test(text.trim())) props.onEdit(Number(text.trim()))
           },
         })
       } else {
