@@ -736,6 +736,8 @@ export function apply(ctx, config = {}) {
     broadcast({
       kind: 'status',
       backend: backendKind ?? 'unresolved',
+      // 配置卡据此只显示当前平台上真实存在的字段
+      platform,
       delivered,
       failed,
       streams: streams.size,

@@ -25,24 +25,30 @@ window.__ModuleLoader__.load({
     const CSS = [
       '.dsn-hint { position: fixed; top: 14px; right: 14px; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: 360px; padding: 8px 10px; border-radius: 10px; background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1, #fff)); border: 1px solid var(--dsw-alias-state-warn-primary, rgba(250,157,59,.5)); box-shadow: 0 10px 28px rgba(0,0,0,.18); font-family: inherit; font-size: 12px; line-height: 17px; color: var(--dsw-alias-label-secondary, inherit); }',
       '.dsn-hint button { flex: none; border: none; border-radius: 6px; padding: 3px 9px; background: #07c160; color: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }',
-      // 配置卡（Plugins → dsh-notify → 配置区）
-      '.dsn-cfg { display: flex; flex-direction: column; gap: 14px; font-size: 13px; color: var(--dsw-alias-label-primary, inherit); }',
-      '.dsn-cfg-group { display: flex; flex-direction: column; gap: 8px; }',
-      '.dsn-cfg-group > h4 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-secondary, inherit); }',
-      '.dsn-cfg-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 18px; }',
-      '.dsn-cfg-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }',
-      '.dsn-cfg-field > label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dsw-alias-label-secondary, inherit); }',
-      '.dsn-cfg-field input[type="text"], .dsn-cfg-field input[type="number"], .dsn-cfg-field select { box-sizing: border-box; width: 100%; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.35)); background: var(--dsw-alias-bg-layer-2, transparent); color: inherit; font: inherit; }',
+      // 配置卡（Plugins → dsh-notify → 配置区）：面板 + 分组 + 平台徽标
+      '.dsn-cfg { display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--dsw-alias-label-primary, inherit); }',
+      '.dsn-cfg-panel { border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22)); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,.04)); padding: 4px 14px; }',
+      '.dsn-cfg-group { padding: 12px 0; }',
+      '.dsn-cfg-group + .dsn-cfg-group { border-top: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.18)); }',
+      '.dsn-cfg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }',
+      '.dsn-cfg-title { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-primary, inherit); }',
+      '.dsn-cfg-chip { font-size: 10px; line-height: 16px; padding: 0 7px; border-radius: 999px; letter-spacing: .02em; background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.16)); color: var(--dsw-alias-label-secondary, rgba(127,127,127,.95)); }',
+      '.dsn-cfg-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 20px; }',
+      '.dsn-cfg-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }',
+      '.dsn-cfg-field > label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary, inherit); }',
+      '.dsn-cfg-field > label.dsn-cfg-switch { font-size: 13px; color: var(--dsw-alias-label-primary, inherit); cursor: pointer; }',
+      '.dsn-cfg-input, .dsn-cfg-field input[type="text"], .dsn-cfg-field input[type="number"], .dsn-cfg-field select { box-sizing: border-box; width: 100%; height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3)); background: var(--dsw-alias-bg-layer-2, transparent); color: inherit; font: inherit; font-size: 12px; }',
+      '.dsn-cfg-field select { cursor: pointer; }',
+      '.dsn-cfg-field input:focus-visible, .dsn-cfg-field select:focus-visible { outline: 2px solid #07c160; outline-offset: 1px; }',
       '.dsn-cfg-field input:disabled, .dsn-cfg-field select:disabled { opacity: .55; }',
       '.dsn-cfg-hint { font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-tertiary, rgba(127,127,127,.9)); }',
-      '.dsn-cfg-inline { display: flex; align-items: center; gap: 8px; }',
-      '.dsn-cfg-check { width: 16px; height: 16px; accent-color: #07c160; }',
-      '.dsn-cfg-tag { font-size: 11px; padding: 0 6px; border-radius: 6px; background: rgba(7,193,96,.14); color: #07c160; }',
-      '.dsn-cfg-link { border: none; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--dsw-alias-label-tertiary, rgba(127,127,127,.9)); cursor: pointer; text-decoration: underline; }',
-      '.dsn-cfg-foot { display: flex; align-items: center; gap: 10px; }',
-      '.dsn-cfg-btn { border: none; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 12px; cursor: pointer; background: #07c160; color: #fff; }',
+      '.dsn-cfg-check { flex: none; width: 15px; height: 15px; accent-color: #07c160; cursor: pointer; }',
+      '.dsn-cfg-reset { border: none; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--dsw-alias-label-tertiary, rgba(127,127,127,.9)); cursor: pointer; text-decoration: underline; align-self: flex-start; }',
+      '.dsn-cfg-badge { font-size: 10px; line-height: 15px; padding: 0 6px; border-radius: 999px; background: rgba(7,193,96,.14); color: #07c160; }',
+      '.dsn-cfg-foot { display: flex; align-items: center; gap: 10px; padding-top: 2px; }',
+      '.dsn-cfg-btn { border: none; border-radius: 8px; height: 30px; padding: 0 16px; font: inherit; font-size: 12px; cursor: pointer; background: #07c160; color: #fff; }',
       '.dsn-cfg-btn.ghost { background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.14)); color: inherit; }',
-      '.dsn-cfg-btn:disabled { opacity: .5; cursor: default; }',
+      '.dsn-cfg-btn:disabled { opacity: .45; cursor: default; }',
       '.dsn-cfg-note { font-size: 12px; color: var(--dsw-alias-label-secondary, inherit); }',
       '.dsn-cfg-error { font-size: 12px; color: var(--dsw-alias-state-error-primary, #e5484d); }',
     ].join('\n')
@@ -54,6 +60,33 @@ window.__ModuleLoader__.load({
       listeners: new Set(),
       timers: new Set(),
     }
+
+    /**
+     * 宿主平台（`diag.platform`）：配置卡只显示这个平台真实存在的字段
+     * （macOS 不显示 Windows 弹出窗那一套，Windows 不显示 macOS 提示音）。
+     * 平台未知时只显示跨平台字段 —— 不猜，避免先显示再消失。
+     */
+    let hostPlatform
+    const platformListeners = new Set()
+
+    function setHostPlatform(next) {
+      if (typeof next !== 'string' || next === '' || next === hostPlatform) return
+      hostPlatform = next
+      for (const listener of platformListeners) {
+        try {
+          listener()
+        } catch (error) {
+          console.error('[dsh-notify] 平台订阅者失败', error)
+        }
+      }
+    }
+
+    function subscribeHostPlatform(listener) {
+      platformListeners.add(listener)
+      return () => platformListeners.delete(listener)
+    }
+
+    const getHostPlatform = () => hostPlatform
 
     function emit() {
       for (const listener of store.listeners) {
@@ -153,6 +186,7 @@ window.__ModuleLoader__.load({
             store.hostBackend = item.backend
             updateHint()
           }
+          setHostPlatform(item.platform)
           return
         }
         if (item.kind !== 'approval' && item.kind !== 'question' && item.kind !== 'done') return
@@ -219,6 +253,7 @@ window.__ModuleLoader__.load({
             store.hostBackend = data.diag.backend
             updateHint()
           }
+          if (data.diag) setHostPlatform(data.diag.platform)
           if (typeof data.head === 'number') {
             if (since === null) {
               since = data.head
@@ -275,6 +310,22 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // SSE 长连接本身不返回 diag：页面用 SSE 时也先取一次，配置卡才能知道宿主平台。
+      void (async () => {
+        try {
+          const response = await fetch(FEED_PATH, { headers: { accept: 'application/json' }, cache: 'no-store' })
+          if (!response.ok) return
+          const data = await response.json()
+          if (data.diag) {
+            if (typeof data.diag.backend === 'string') store.hostBackend = data.diag.backend
+            setHostPlatform(data.diag.platform)
+            updateHint()
+          }
+        } catch {
+          // 兜底信息拿不到不影响系统通知，静默。
+        }
+      })()
+
       startStream()
 
       return () => {
@@ -314,7 +365,24 @@ window.__ModuleLoader__.load({
     // 我们只负责画控件：宿主半已经声明了 Config（见 dsh/host.js）。
     // -----------------------------------------------------------------------
 
-    /** 配置字段（与 dsh/host.js 的 Config schema 一一对应）。 */
+    /** 只在 Windows 上存在的字段（自绘弹出窗那一套）。 */
+    const WINDOWS_ONLY = ['win32']
+
+    /**
+     * 通知通道选项：`auto` 之外只列**当前平台真实存在**的通道。
+     * 其它平台的值仍然保留词典（当前值不在列表里时会补进去，避免下拉"吃掉"已配置的值）。
+     */
+    const BACKEND_BY_PLATFORM = {
+      darwin: ['auto', 'osascript', 'terminal-notifier'],
+      win32: ['auto', 'banner', 'powershell', 'snoretoast'],
+      linux: ['auto', 'notify-send'],
+    }
+    const BACKEND_ALL = ['auto', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send']
+
+    /**
+     * 配置字段（与 dsh/host.js 的 Config schema 一一对应）。
+     * `platforms` 省略 = 所有平台都显示；否则只在列出的平台上显示（宿主平台由 feed 诊断提供）。
+     */
     const CONFIG_FIELDS = [
       { group: 'switch', key: 'approval', kind: 'boolean' },
       { group: 'switch', key: 'question', kind: 'boolean' },
@@ -322,28 +390,47 @@ window.__ModuleLoader__.load({
       { group: 'timing', key: 'minRunMs', kind: 'number' },
       { group: 'timing', key: 'remindEveryMs', kind: 'number' },
       { group: 'timing', key: 'maxReminders', kind: 'number' },
-      { group: 'type', key: 'windowsStyle', kind: 'enum', values: ['banner', 'toast'] },
-      { group: 'type', key: 'backend', kind: 'enum', values: ['auto', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send'] },
+      { group: 'type', key: 'backend', kind: 'enum', values: BACKEND_ALL },
+      { group: 'type', key: 'windowsStyle', kind: 'enum', values: ['banner', 'toast'], platforms: WINDOWS_ONLY },
       { group: 'copy', key: 'titleFrom', kind: 'enum', values: ['app', 'project'] },
       { group: 'copy', key: 'fallbackName', kind: 'text' },
       { group: 'copy', key: 'subtitle', kind: 'text' },
-      { group: 'copy', key: 'sound', kind: 'text' },
-      { group: 'look', key: 'bannerWidth', kind: 'number' },
-      { group: 'look', key: 'bannerMinWidth', kind: 'number' },
-      { group: 'look', key: 'bannerRadius', kind: 'number' },
-      { group: 'look', key: 'bannerHeight', kind: 'number' },
-      { group: 'look', key: 'bannerPosition', kind: 'enum', values: ['topright', 'topleft', 'bottomright', 'bottomleft'] },
-      { group: 'look', key: 'bannerDurationMs', kind: 'number' },
+      { group: 'copy', key: 'sound', kind: 'text', platforms: ['darwin'] },
+      { group: 'look', key: 'bannerWidth', kind: 'number', platforms: WINDOWS_ONLY },
+      { group: 'look', key: 'bannerMinWidth', kind: 'number', platforms: WINDOWS_ONLY },
+      { group: 'look', key: 'bannerRadius', kind: 'number', platforms: WINDOWS_ONLY },
+      { group: 'look', key: 'bannerHeight', kind: 'number', platforms: WINDOWS_ONLY },
+      { group: 'look', key: 'bannerPosition', kind: 'enum', values: ['topright', 'topleft', 'bottomright', 'bottomleft'], platforms: WINDOWS_ONLY },
+      { group: 'look', key: 'bannerDurationMs', kind: 'number', platforms: WINDOWS_ONLY },
     ]
 
-    /** 分组顺序 + 标题的词典键。 */
+    /** 分组顺序 + 标题的词典键；平台专属分组带徽标，且只在对应平台上出现。 */
     const CONFIG_GROUPS = [
       { id: 'switch', title: 'group.switch' },
       { id: 'timing', title: 'group.timing' },
       { id: 'type', title: 'group.type' },
       { id: 'copy', title: 'group.copy' },
-      { id: 'look', title: 'group.look' },
+      { id: 'look', title: 'group.look', chip: 'chip.windows', platforms: WINDOWS_ONLY },
     ]
+
+    /** 字段在当前平台上是否展示（平台未知时只展示跨平台字段，避免闪一下又消失）。 */
+    function matchesPlatform(spec, platform) {
+      if (spec.platforms === undefined) return true
+      return platform !== undefined && spec.platforms.includes(platform)
+    }
+
+    /** 枚举字段在当前平台上的选项；已配置但不在列表里的值补进来，避免下拉显示错值。 */
+    function optionsFor(spec, platform, current) {
+      const all = spec.values ?? []
+      const values = spec.key === 'backend' ? (BACKEND_BY_PLATFORM[platform] ?? all).slice() : all.slice()
+      if (typeof current === 'string' && current !== '' && !values.includes(current)) values.push(current)
+      return values
+    }
+
+    /** 当前平台上可见的字段。 */
+    function fieldsForPlatform(platform) {
+      return CONFIG_FIELDS.filter((spec) => matchesPlatform(spec, platform))
+    }
 
     /** 字典命名空间（也是 settings 的 namespace）。 */
     const CONFIG_NS = 'dsh-notify'
@@ -354,6 +441,8 @@ window.__ModuleLoader__.load({
       'group.type': '提醒类型',
       'group.copy': '文案',
       'group.look': 'Windows 弹出窗外观',
+      'chip.windows': 'Windows',
+      'platformUnknown': '正在识别运行平台…（先只显示跨平台配置）',
       'f.approval': '需要审批时通知',
       'h.approval': '工具调用（bash 等）等待审批时弹通知',
       'f.question': '需要回答时通知',
@@ -412,6 +501,8 @@ window.__ModuleLoader__.load({
       'group.type': 'Delivery',
       'group.copy': 'Copy',
       'group.look': 'Windows popup appearance',
+      'chip.windows': 'Windows',
+      'platformUnknown': 'Detecting the host platform… (showing cross-platform settings for now)',
       'f.approval': 'Notify on approvals',
       'h.approval': 'A tool call (bash …) is waiting for approval',
       'f.question': 'Notify on questions',
@@ -502,7 +593,7 @@ window.__ModuleLoader__.load({
         control = h('select', {
           value: value === undefined || value === null ? '' : String(value), disabled,
           onChange: (event) => props.onEdit(event.target.value),
-        }, (spec.values ?? []).map((option) => h('option', { key: option, value: option },
+        }, (props.options ?? spec.values ?? []).map((option) => h('option', { key: option, value: option },
           t(`v.${spec.key}.${option}`))))
       } else if (spec.kind === 'number') {
         control = h('input', {
@@ -521,16 +612,23 @@ window.__ModuleLoader__.load({
           onChange: (event) => props.onEdit(event.target.value),
         })
       }
+      if (spec.kind === 'boolean') {
+        return h('div', { className: 'dsn-cfg-field' },
+          h('label', { className: 'dsn-cfg-switch' }, control, h('span', null, label),
+            overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null),
+          hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint),
+          overridden
+            ? h('button', { type: 'button', className: 'dsn-cfg-reset', disabled, onClick: () => props.onReset() }, t('reset'))
+            : null,
+        )
+      }
       return h('div', { className: 'dsn-cfg-field' },
-        h('label', null,
-          spec.kind === 'boolean' ? control : null,
-          h('span', null, label),
-          overridden ? h('span', { className: 'dsn-cfg-tag' }, t('overridden')) : null,
-        ),
-        spec.kind === 'boolean' ? null : control,
+        h('label', null, h('span', null, label),
+          overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null),
+        control,
         hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint),
         overridden
-          ? h('button', { type: 'button', className: 'dsn-cfg-link', disabled, onClick: () => props.onReset() }, t('reset'))
+          ? h('button', { type: 'button', className: 'dsn-cfg-reset', disabled, onClick: () => props.onReset() }, t('reset'))
           : null,
       )
     }
@@ -542,6 +640,11 @@ window.__ModuleLoader__.load({
         React.useCallback((listener) => form.subscribe(listener), [form]),
         () => form.getSnapshot(),
         () => form.getSnapshot(),
+      )
+      const platform = React.useSyncExternalStore(
+        React.useCallback((listener) => subscribeHostPlatform(listener), []),
+        getHostPlatform,
+        getHostPlatform,
       )
       const [draft, setDraft] = React.useState(null)
       const [saving, setSaving] = React.useState(false)
@@ -597,23 +700,37 @@ window.__ModuleLoader__.load({
         return h('p', { className: 'dsn-cfg-note' }, snapshot.mode === 'memory' ? t('unavailableRemote') : t('unavailableHost'))
       }
       if (snapshot.status === 'loading' && snapshot.value === undefined) return h('p', { className: 'dsn-cfg-note' }, t('loading'))
+
+      // 只显示当前宿主平台上真实存在的字段 / 分组（Windows 专属那一组在 macOS 上整组不出现）
+      const visible = fieldsForPlatform(platform)
+      const groups = CONFIG_GROUPS
+        .filter((group) => group.platforms === undefined || matchesPlatform(group, platform))
+        .filter((group) => visible.some((spec) => spec.group === group.id))
+
       return h('div', { className: 'dsn-cfg' },
-        CONFIG_GROUPS.map((group) => h('section', { key: group.id, className: 'dsn-cfg-group' },
-          h('h4', null, t(group.title)),
-          h('div', { className: 'dsn-cfg-fields' },
-            CONFIG_FIELDS.filter((spec) => spec.group === group.id).map((spec) => h(Field, {
-              key: spec.key,
-              spec,
-              t,
-              disabled,
-              value: fieldValue(spec.key, draft, current),
-              baseValue: snapshot.base?.[spec.key],
-              overridden: Object.hasOwn(user, spec.key),
-              onEdit: (value) => edit(spec.key, value),
-              onReset: () => { void resetField(spec.key) },
-            })),
-          ),
-        )),
+        platform === undefined ? h('p', { className: 'dsn-cfg-note' }, t('platformUnknown')) : null,
+        h('div', { className: 'dsn-cfg-panel' },
+          groups.map((group) => h('section', { key: group.id, className: 'dsn-cfg-group' },
+            h('div', { className: 'dsn-cfg-head' },
+              h('h4', { className: 'dsn-cfg-title' }, t(group.title)),
+              group.chip === undefined ? null : h('span', { className: 'dsn-cfg-chip' }, t(group.chip)),
+            ),
+            h('div', { className: 'dsn-cfg-fields' },
+              visible.filter((spec) => spec.group === group.id).map((spec) => h(Field, {
+                key: spec.key,
+                spec,
+                t,
+                disabled,
+                options: spec.kind === 'enum' ? optionsFor(spec, platform, fieldValue(spec.key, draft, current)) : undefined,
+                value: fieldValue(spec.key, draft, current),
+                baseValue: snapshot.base?.[spec.key],
+                overridden: Object.hasOwn(user, spec.key),
+                onEdit: (value) => edit(spec.key, value),
+                onReset: () => { void resetField(spec.key) },
+              })),
+            ),
+          )),
+        ),
         h('div', { className: 'dsn-cfg-foot' },
           h('button', { type: 'button', className: 'dsn-cfg-btn', disabled: disabled || pending.length === 0, onClick: () => { void save() } },
             saving ? t('saving') : t('save')),
@@ -682,7 +799,10 @@ window.__ModuleLoader__.load({
     }
 
     /** 供 node 侧测试读取（浏览器里不用）。 */
-    const internals = { CONFIG_FIELDS, CONFIG_GROUPS, CONFIG_ZH, CONFIG_EN, changedKeys, fieldValue }
+    const internals = {
+      CONFIG_FIELDS, CONFIG_GROUPS, CONFIG_ZH, CONFIG_EN, changedKeys, fieldValue,
+      matchesPlatform, fieldsForPlatform, optionsFor, BACKEND_BY_PLATFORM,
+    }
 
     return { inject: [], apply, internals }
   },

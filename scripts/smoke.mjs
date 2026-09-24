@@ -948,14 +948,53 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
       else bad(`配置卡 ${name} 词典缺 ${gaps.length} 个键：${gaps.slice(0, 6).join(', ')}…`)
     }
 
-    // ③ 草稿 diff / 取值逻辑
+    // ③ 平台筛选：macOS 不显示 Windows 那一套，Linux 不显示 macOS 提示音
+    const mac = card.fieldsForPlatform('darwin').map((spec) => spec.key)
+    const win = card.fieldsForPlatform('win32').map((spec) => spec.key)
+    const linux = card.fieldsForPlatform('linux').map((spec) => spec.key)
+    const unknown = card.fieldsForPlatform(undefined).map((spec) => spec.key)
+    if (!mac.includes('bannerWidth') && mac.includes('sound') && mac.includes('minRunMs')) {
+      ok('macOS 只显示 macOS 相关字段（隐藏弹出窗尺寸，保留提示音）')
+    } else {
+      bad(`macOS 字段筛选不对：${mac.join(', ')}`)
+    }
+    if (win.includes('bannerWidth') && win.includes('windowsStyle') && !win.includes('sound')) {
+      ok('Windows 只显示 Windows 相关字段（弹出窗尺寸在，macOS 提示音不在）')
+    } else {
+      bad(`Windows 字段筛选不对：${win.join(', ')}`)
+    }
+    if (!linux.includes('bannerWidth') && !linux.includes('sound') && linux.includes('backend')) {
+      ok('Linux 只显示 Linux 相关字段')
+    } else {
+      bad(`Linux 字段筛选不对：${linux.join(', ')}`)
+    }
+    if (unknown.every((key) => ['approval', 'question', 'done', 'minRunMs', 'remindEveryMs', 'maxReminders', 'backend', 'titleFrom', 'fallbackName', 'subtitle'].includes(key))) {
+      ok('平台未知时只显示跨平台字段（不猜平台）')
+    } else {
+      bad(`平台未知时的字段不对：${unknown.join(', ')}`)
+    }
+    const winBackends = card.optionsFor({ key: 'backend', values: ['auto'] }, 'win32', 'auto')
+    const macBackends = card.optionsFor({ key: 'backend', values: ['auto'] }, 'darwin', 'auto')
+    if (winBackends.includes('powershell') && !winBackends.includes('osascript')
+      && macBackends.includes('osascript') && !macBackends.includes('powershell')) {
+      ok('通知通道下拉按平台过滤选项')
+    } else {
+      bad(`通道选项没按平台过滤：win=${winBackends.join('/')} mac=${macBackends.join('/')}`)
+    }
+    if (card.optionsFor({ key: 'backend', values: ['auto'] }, 'linux', 'powershell').includes('powershell')) {
+      ok('已配置但不在当前平台列表里的通道值会补进下拉（不会显示错值）')
+    } else {
+      bad('当前值没有补进下拉选项')
+    }
+
+    // ④ 草稿 diff / 取值逻辑
     const diff = card.changedKeys({ bannerWidth: 420, approval: true }, { bannerWidth: 350, approval: false })
     if (diff.length === 2 && diff.includes('bannerWidth')) ok('草稿 diff 只提交改动过的键')
     else bad(`草稿 diff 不对：${JSON.stringify(diff)}`)
     if (card.fieldValue('bannerWidth', { bannerWidth: 420 }, { bannerWidth: 350 }) === 420) ok('草稿值优先于宿主值')
     else bad('草稿取值优先级不对')
 
-    // ④ 真的注册到 plugins.bundle.config，key 用包名
+    // ⑤ 真的注册到 plugins.bundle.config，key 用包名
     const registrations = []
     const scope = {
       slots: {

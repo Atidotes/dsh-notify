@@ -76,13 +76,19 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 
 打开 **侧边栏 → Plugins → 消息通知（dsh-notify）**，插件详情页里就是配置卡，分五组：
 
-| 分组 | 字段 |
-|---|---|
-| **通知开关** | 需要审批时通知 / 需要回答时通知 / 任务完成时通知 |
-| **触发时机** | 最短运行时长、重复提醒间隔、最多提醒次数 |
-| **提醒类型** | Windows 提醒形态（自绘弹出窗 / 系统通知）、通知通道 |
-| **文案** | 标题取什么（固定应用名 / 项目目录名）、固定标题、副标题、提示音 |
-| **Windows 弹出窗外观** | 最大宽度、最小宽度、圆角、高度、位置、停留时长 |
+| 分组 | 字段 | 平台 |
+|---|---|---|
+| **通知开关** | 需要审批时通知 / 需要回答时通知 / 任务完成时通知 | 全平台 |
+| **触发时机** | 最短运行时长、重复提醒间隔、最多提醒次数 | 全平台 |
+| **提醒类型** | 通知通道；Windows 提醒形态（自绘弹出窗 / 系统通知） | 通道按平台列；形态仅 Windows |
+| **文案** | 标题取什么（固定应用名 / 项目目录名）、固定标题、副标题；提示音 | 提示音仅 macOS |
+| **Windows 弹出窗外观** | 最大宽度、最小宽度、圆角、高度、位置、停留时长 | 仅 Windows |
+
+**按平台显示**：卡片读宿主平台（来自 `/dsh-notify/feed` 的 `diag.platform`），
+macOS 上不显示 Windows 弹出窗那一整组、也不显示只在 Windows 存在的通道；
+Windows 上不显示 macOS 提示音；「通知通道」下拉只列当前平台真实存在的通道
+（darwin: auto/osascript/terminal-notifier；win32: auto/banner/powershell/snoretoast；
+linux: auto/notify-send）。平台还没识别出来时只显示跨平台字段，不会先显示再消失。
 
 改完点保存：写进 profile 的 `~/.dsh/profiles/web/cordis.patch.yml`，由 volatile HMR
 **原地生效 —— 不用重启 DSH**（只有 `backend` / `windowsStyle` 这类影响通道选择的字段会
