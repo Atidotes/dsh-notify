@@ -111,14 +111,14 @@ const DEFAULT_CONFIG = {
   /** banner 模式的位置：topright / topleft / bottomright / bottomleft。 */
   bannerPosition: 'topright',
   /**
-   * banner 模式的宽度**上限**（96 DPI 下的逻辑像素）：默认 330。
+   * banner 模式的宽度**上限**（96 DPI 下的逻辑像素）：默认 360。
    * 卡片会按标题/正文里更长的那条自己收窄（最短 `bannerMinWidth`），不会留一截空白。
    */
-  bannerWidth: 330,
+  bannerWidth: 360,
   /** banner 模式的宽度**下限**：想钉死宽度就把 `bannerMinWidth` 和 `bannerWidth` 设成同一个值。 */
-  bannerMinWidth: 250,
+  bannerMinWidth: 290,
   /** 卡片圆角半径（96 DPI 下的逻辑像素）；会被自动限制在「卡片高度的一半」以内。 */
-  bannerRadius: 24,
+  bannerRadius: 32,
   /**
    * banner 模式的高度（96 DPI 下的逻辑像素）：
    *   0（默认）= 按正文实际行数**自适应**（单行 ≈ 54、两行 ≈ 70），不留白
@@ -338,7 +338,7 @@ export function powershellToastScript(title, body, appId, iconPath) {
  *
  * 外观对齐 macOS 通知横幅，但**卡片贴着内容走**：宽度按标题/正文里更长的那条量出来
  * （默认 240–360 之间，不再固定 360 留一截空白），高度 = 标题 + 正文实际行高 + 5px；
- * 34×34 应用图标、13px 半粗标题 + 12px 正文、24px 圆角浅色卡片、跟随系统浅色/深色外观。
+ * 34×34 应用图标、13px 半粗标题 + 12px 正文、圆角（最大 = 卡片高度一半，即胶囊）浅色卡片。
  *
  * **DPI**：不调 `SetProcessDPIAware` 时，Windows 在 150% / 200% 缩放的屏幕上会把整个
  * 窗口当位图放大 —— 又大又糊（这是「弹出窗太大」的真正原因）。所以脚本先声明 DPI
@@ -383,9 +383,9 @@ export function powershellBannerScript(options) {
    * 卡片宽度：options.width 是**上限**，再按标题/正文里更长的那条收窄，下限 options.minWidth。
    * 想钉死宽度就把 minWidth 和 width 设成同一个值。
    */
-  const minWidth = Number.isFinite(options.minWidth) && options.minWidth > 0 ? Math.round(options.minWidth) : 250
+  const minWidth = Number.isFinite(options.minWidth) && options.minWidth > 0 ? Math.round(options.minWidth) : 290
   /** 圆角半径：越大越圆；构建 Region 时会夹到「高度的一半」以内，避免矮卡片画歪。 */
-  const radius = Number.isFinite(options.radius) && options.radius > 0 ? Math.round(options.radius) : 24
+  const radius = Number.isFinite(options.radius) && options.radius > 0 ? Math.round(options.radius) : 32
   /**
    * 让一条**装饰性**语句失败时不至于整条通知消失。
    *
