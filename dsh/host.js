@@ -389,14 +389,15 @@ export function powershellBannerScript(options) {
     '$scale = 1.0',
     soft('$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); if ($g -ne $null) { if ($g.DpiX -gt 0) { $scale = [Math]::Round($g.DpiX / 96.0, 2) }; $g.Dispose() }'),
     'if ($scale -le 0.5 -or $scale -gt 4) { $scale = 1.0 }',
-    // 版式基准（96 DPI）：紧贴内容 —— 内边距 10、图标 36、标题 13px、正文 12px
+    // 版式基准（96 DPI）：紧贴内容 —— 左右内边距 10、图标 34、标题 13px、正文 12px、
+    // **底部只留 5**（正文下面那块空白是「留白太多」的来源）
     `$W = ${px(width)}`,
-    `$m = ${px(margin)}; $r = ${px(14)}; $pad = ${px(10)}; $icon = ${px(36)}; $gap = ${px(10)}`,
-    `$titleTop = ${px(10)}; $titleH = ${px(16)}; $bodyTop = ${px(28)}`,
+    `$m = ${px(margin)}; $r = ${px(14)}; $pad = ${px(10)}; $icon = ${px(34)}; $gap = ${px(10)}`,
+    `$titleTop = ${px(10)}; $titleH = ${px(17)}; $bodyTop = ${px(28)}; $bottomPad = ${px(5)}`,
     fitHeight
       // 自适应：先按「单行正文」估高，后面量出真实行数再定稿
-      ? `$bodyH = ${px(16)}; $H = $bodyTop + $bodyH + $pad`
-      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - $pad`,
+      ? `$bodyH = ${px(16)}; $H = $bodyTop + $bodyH + $bottomPad`
+      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - ${px(5)}`,
     // 浅色/深色跟随 Windows 应用主题（macOS 通知也跟随系统外观）
     '$light = 1',
     soft("$light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme"),
@@ -434,10 +435,11 @@ export function powershellBannerScript(options) {
     soft('$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)'),
     '$body.Left = $title.Left; $body.Top = $bodyTop; $body.Width = $title.Width',
     '$form.Controls.Add($body)',
-    // 自适应高度：量出正文真实行高再定卡片高度（单行不留白，两行也不会被裁）
+    // 自适应高度：量出正文真实行高再定卡片高度（单行不留白，两行也不会被裁）。
+    // NoPadding 很关键：默认测量值含文本边框的额外内边距，会让卡片凭空高几像素。
     ...(fitHeight ? [
-      soft('$measured = [System.Windows.Forms.TextRenderer]::MeasureText($body.Text, $body.Font, (New-Object System.Drawing.Size($body.Width, 1000)), [System.Windows.Forms.TextFormatFlags]::WordBreak); if ($measured.Height -gt 0) { $bodyH = [int]$measured.Height }'),
-      '$H = $bodyTop + $bodyH + $pad',
+      soft('$flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::NoPadding; $measured = [System.Windows.Forms.TextRenderer]::MeasureText($body.Text, $body.Font, (New-Object System.Drawing.Size($body.Width, 1000)), $flags); if ($measured.Height -gt 0) { $bodyH = [int]$measured.Height }'),
+      '$H = $bodyTop + $bodyH + $bottomPad',
     ] : []),
     // 定稿：卡片高度、图标垂直居中、贴角位置都按最终高度算
     '$body.Height = $bodyH; $form.Height = $H',
@@ -448,6 +450,8 @@ export function powershellBannerScript(options) {
     soft('$form.Add_Paint({ param($sender, $e) try { $pen = New-Object System.Drawing.Pen($lineColor, 1); $e.Graphics.SmoothingMode = "AntiAlias"; $e.Graphics.DrawPath($pen, $path); $pen.Dispose() } catch { } })'),
     click,
     autoClose,
+    // 把卡片实际几何写进 stderr（进 diag.lastStderr）：下次调版式不用再猜
+    soft('[Console]::Error.WriteLine("dsh-notify 卡片 {0}x{1}（正文 {2}px / scale {3}）" -f $W, $H, $bodyH, $scale)'),
     '$form.ShowDialog() | Out-Null',
   ].filter((line) => line !== '').join('; '))
 }
