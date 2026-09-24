@@ -49,10 +49,16 @@ export const inject = []
  * GUI 里改完立刻对下一条通知生效。
  */
 function liveConfig(base) {
+  // volatile 引用带一个全局符号（vendor/cosmokit/src/volatile.ts 的 write 标记）。
+  // 用它判断比"有 .get 方法"可靠：普通配置对象万一带 get 字段，不会被误当成引用解包。
+  const VOLATILE_MARK = Symbol.for('cosmokit.volatile.write')
   return new Proxy(base, {
     get(target, key) {
       const value = Reflect.get(target, key)
-      if (value !== null && typeof value === 'object' && typeof value.get === 'function') return value.get()
+      if (value !== null && typeof value === 'object') {
+        if (VOLATILE_MARK in value) return value.get()
+        if (typeof value.get === 'function' && typeof value[VOLATILE_MARK] === 'function') return value.get()
+      }
       return value
     },
   })
@@ -590,6 +596,7 @@ export function apply(ctx, config = {}) {
   let backendKind
   let delivered = 0
   let failed = 0
+  let lastFailureAt
   let lastError
   let lastCommand
   let lastExitCode
@@ -822,6 +829,8 @@ export function apply(ctx, config = {}) {
                   // 生效的配置：Windows 上「弹的是右下角 Toast 还是右上角弹出窗」
                   // 完全由这两个值决定，写进诊断就不用猜是哪一层覆盖了默认值。
                   backendConfig: cfg.backend,
+                  copy: { titleFrom: cfg.titleFrom, fallbackName: cfg.fallbackName, subtitle: cfg.subtitle },
+                  lastFailureAt,
                   backendFallback,
                   windowsStyle: cfg.windowsStyle,
                   notifier: notifierState ?? 'idle',
@@ -1102,7 +1111,12 @@ export function apply(ctx, config = {}) {
           const tail = clip(collectedTail(handle, 'stderr'), 200)
           lastExitCode = typeof exitCode === 'number' ? exitCode : undefined
           lastStderr = tail === '' ? undefined : tail
-          lastDeliveredAt = Date.now()
+          if (lastExitCode === undefined || lastExitCode === 0) {
+            // 只有退出码 0 才算"真的投递成功"：否则 lastDeliveredAt 会骗人
+            lastDeliveredAt = Date.now()
+          } else {
+            lastFailureAt = Date.now()
+          }
           if (lastExitCode !== undefined && lastExitCode !== 0) {
             failed += 1
             lastError = `通知命令退出码 ${lastExitCode}${lastStderr === undefined ? '' : `：${lastStderr}`}`
@@ -1575,7 +1589,7 @@ export function apply(ctx, config = {}) {
    * @param message - 系统通知文案
    * @param ref - resolve 时回传的卡片 id
    */
-  function startPlan(message, ref) {
+  function startPlan(message, ref, item) {
     let stopped = false
     let timer
     if (cfg.remindEveryMs > 0 && cfg.maxReminders > 0) {
@@ -1588,7 +1602,13 @@ export function apply(ctx, config = {}) {
           timers.delete(timer)
           return
         }
-        fire(Object.assign({}, message, { body: `${message.body}（第 ${reminder} 次提醒）` }))
+        const body = `${message.body}（第 ${reminder} 次提醒）`
+        // 提醒也写一条 feed：host 没有可用通道时，页面兜底通知（浏览器通知）靠它重复提醒，
+        // 否则"降级到浏览器通知"的用户只会收到第一条、后续提醒全部消失。
+        if (item !== undefined) {
+          publish(Object.assign({}, item, { body, remind: reminder }))
+        }
+        fire(Object.assign({}, message, { body }))
       }, cfg.remindEveryMs)
       timers.add(timer)
     }
@@ -1668,8 +1688,9 @@ export function apply(ctx, config = {}) {
         urgency: cfg.linuxUrgentUrgency,
         group: `dsh-notify-approval-${String(req?.callId ?? sessionId ?? 'unknown')}`,
       }
-      const ref = notify({ kind: 'approval', name, body, detail, sessionId }, message)
-      const plan = startPlan(message, ref)
+      const item = { kind: 'approval', name, body, detail, sessionId }
+      const ref = notify(item, message)
+      const plan = startPlan(message, ref, item)
       const key = String(req?.callId ?? sessionId ?? '')
       if (key) {
         // 同一个 key 已经有计划就先停掉（否则旧计划的 stop() 会把新条目从 map 里删掉）
@@ -1705,8 +1726,9 @@ export function apply(ctx, config = {}) {
         sound: cfg.sound,
         urgency: cfg.linuxUrgentUrgency,
       }
-      const ref = notify({ kind: 'question', name, body, detail, sessionId }, message)
-      const plan = startPlan(message, ref)
+      const item = { kind: 'question', name, body, detail, sessionId }
+      const ref = notify(item, message)
+      const plan = startPlan(message, ref, item)
       return { stop: () => plan.stop() }
   })
 
@@ -1721,6 +1743,13 @@ export function apply(ctx, config = {}) {
           const status = payload && payload.status
           if (!agent || !agent.id) return
           if (status === 'running') {
+            // 顺手清理：agent 中途消失（没有 idle）时条目会一直留着，长跑宿主里越积越多
+            if (runs.size > 512) {
+              const cutoff = Date.now() - 12 * 60 * 60 * 1_000
+              for (const [id, startedAt] of runs) {
+                if (startedAt < cutoff) runs.delete(id)
+              }
+            }
             runs.set(agent.id, Date.now())
             return
           }

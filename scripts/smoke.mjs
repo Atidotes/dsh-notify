@@ -1254,6 +1254,52 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   await new Promise((resolve) => setTimeout(resolve, 30))
 }
 
+// --- 22. 回归：提醒也写 feed（页面兜底通知能重复提醒）+ 诊断补 copy/失败时间 --------
+{
+  captured.length = 0
+  const bench = makeCtx({ sessions: { 'session-28': { header: { cwd: '/tmp/remind' } } } })
+  let answer = () => {}
+  const gate = new Promise((resolveGate) => { answer = resolveGate })
+  bench.ctx.on('approval/request', () => gate)
+  apply(bench.ctx, { remindEveryMs: 15, maxReminders: 3, minRunMs: 0, backend: 'osascript' })
+  const pendingPlan = bench.call('approval/request', { agent: { id: 'session-28' }, toolName: 'bash' })
+  if (typeof pendingPlan?.catch === 'function') pendingPlan.catch(() => {})
+  await new Promise((resolve) => setTimeout(resolve, 80))
+
+  const feed = await bench.route(`${FEED_PATH}?since=0`)
+  const reminders = (feed.items ?? []).filter((item) => item.kind === 'approval' && typeof item.remind === 'number')
+  if (reminders.length >= 1 && reminders[0].body.includes('第 1 次提醒')) {
+    ok(`提醒会写一条 feed（${reminders.length} 条，页面兜底通道据此重复提醒）`)
+  } else {
+    bad(`提醒没有写 feed：${JSON.stringify((feed.items ?? []).map((item) => item.kind))}`)
+  }
+  if (feed.diag?.copy && typeof feed.diag.copy.titleFrom === 'string') {
+    ok('诊断带 copy 口径（页面兜底通知与宿主同一套文案规则）')
+  } else {
+    bad('诊断缺少 copy')
+  }
+  answer('answered')
+  await new Promise((resolve) => setTimeout(resolve, 30))
+}
+
+// --- 23. 诊断：命令失败不写 lastDeliveredAt（只记 lastFailureAt） ------------------
+{
+  captured.length = 0
+  const bench = makeCtx({
+    failOn: 'osascript',
+    sessions: { 'session-29': { header: { cwd: '/tmp/fail' } } },
+  })
+  apply(bench.ctx, { remindEveryMs: 0, backend: 'osascript' })
+  await bench.call('approval/request', { agent: { id: 'session-29' }, toolName: 'bash' })
+  await settle()
+  const diag = (await bench.route(`${FEED_PATH}?since=0`))?.diag ?? {}
+  if (diag.failed >= 1 && diag.lastDeliveredAt === undefined && typeof diag.lastFailureAt === 'number') {
+    ok('命令失败时不谎报 lastDeliveredAt（失败时间单独记 lastFailureAt）')
+  } else {
+    bad(`失败语义不对：failed=${String(diag.failed)} delivered=${String(diag.lastDeliveredAt)} failure=${String(diag.lastFailureAt)}`)
+  }
+}
+
 // 清理用例产生的临时目录（放在最后：后面的用例还会新建目录）
 rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
 

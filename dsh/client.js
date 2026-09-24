@@ -28,7 +28,10 @@ window.__ModuleLoader__.load({
       '.dsn-hint-close { flex: none; margin-left: 2px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; opacity: .7; font-size: 14px; line-height: 1; cursor: pointer; }',
       '.dsn-hint-close:hover { opacity: 1; background: rgba(127,127,127,.18); }',
       '.dsn-hint { position: fixed; top: 14px; right: 14px; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: 360px; padding: 8px 10px; border-radius: 10px; background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1, #fff)); border: 1px solid var(--dsw-alias-state-warn-primary, rgba(250,157,59,.5)); box-shadow: 0 10px 28px rgba(0,0,0,.18); font-family: inherit; font-size: 12px; line-height: 17px; color: var(--dsw-alias-label-secondary, inherit); }',
-      '.dsn-hint button { flex: none; border: none; border-radius: 6px; padding: 3px 9px; background: #07c160; color: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }',
+      // 品牌色用主题变量（不同主题下会跟着变），取不到再退回原来的绿
+      '.dsn-cfg { --dsn-brand: var(--dsw-alias-brand-primary, #07c160); }',
+      '.dsn-hint { --dsn-brand: var(--dsw-alias-brand-primary, #07c160); }',
+      '.dsn-hint button { flex: none; border: none; border-radius: 6px; padding: 3px 9px; background: var(--dsn-brand); color: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }',
       // 配置卡（Plugins → dsh-notify → 配置区）：面板 + 分组 + 平台徽标
       '.dsn-cfg { display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--dsw-alias-label-primary, inherit); }',
       '.dsn-cfg-showall { display: flex; align-items: center; gap: 8px; padding: 0 2px; font-size: 12px; color: var(--dsw-alias-label-secondary, inherit); cursor: pointer; }',
@@ -42,7 +45,7 @@ window.__ModuleLoader__.load({
       '.dsn-cfg-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }',
       '.dsn-cfg-field > label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary, inherit); }',
       '.dsn-cfg-field > label.dsn-cfg-switch { font-size: 13px; color: var(--dsw-alias-label-primary, inherit); cursor: pointer; }',
-      '.dsn-cfg-input, .dsn-cfg-field input[type="text"], .dsn-cfg-field input[type="number"], .dsn-cfg-field select { box-sizing: border-box; width: 100%; height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3)); background: var(--dsw-alias-bg-layer-2, transparent); color: inherit; font: inherit; font-size: 12px; }',
+      '.dsn-cfg-field input[type="text"], .dsn-cfg-field input[type="number"], .dsn-cfg-field select { box-sizing: border-box; width: 100%; height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3)); background: var(--dsw-alias-bg-layer-2, transparent); color: inherit; font: inherit; font-size: 12px; }',
       '.dsn-cfg-selectwrap { position: relative; display: block; }',
       ".dsn-cfg-selectwrap::after { content: ''; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; margin-top: -4px; border-right: 1.5px solid var(--dsw-alias-label-tertiary, rgba(127,127,127,.95)); border-bottom: 1.5px solid var(--dsw-alias-label-tertiary, rgba(127,127,127,.95)); transform: rotate(45deg); pointer-events: none; }",
       '.dsn-cfg-select { appearance: none; -webkit-appearance: none; -moz-appearance: none; padding-right: 30px; cursor: pointer; }',
@@ -55,12 +58,12 @@ window.__ModuleLoader__.load({
       '.dsn-cfg-check:checked { background: #07c160; border-color: #07c160; }',
       // 纯 CSS 白勾：右边 + 下边描边旋转 45°，不依赖系统绘制的对勾颜色
       ".dsn-cfg-check:checked::after { content: ''; position: absolute; left: 5px; top: 1.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }",
-      '.dsn-cfg-check:focus-visible { outline: 2px solid #07c160; outline-offset: 1px; }',
+      '.dsn-cfg-check:focus-visible { outline: 2px solid var(--dsn-brand); outline-offset: 1px; }',
       '.dsn-cfg-check:disabled { opacity: .5; cursor: default; }',
       '.dsn-cfg-reset { border: none; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--dsw-alias-label-tertiary, rgba(127,127,127,.9)); cursor: pointer; text-decoration: underline; align-self: flex-start; }',
-      '.dsn-cfg-badge { font-size: 10px; line-height: 15px; padding: 0 6px; border-radius: 999px; background: rgba(7,193,96,.14); color: #07c160; }',
+      '.dsn-cfg-badge { font-size: 10px; line-height: 15px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--dsn-brand) 14%, transparent); color: var(--dsn-brand); }',
       '.dsn-cfg-foot { display: flex; align-items: center; gap: 10px; padding-top: 2px; }',
-      '.dsn-cfg-btn { border: none; border-radius: 8px; height: 30px; padding: 0 16px; font: inherit; font-size: 12px; cursor: pointer; background: #07c160; color: #fff; }',
+      '.dsn-cfg-btn { border: none; border-radius: 8px; height: 30px; padding: 0 16px; font: inherit; font-size: 12px; cursor: pointer; background: var(--dsn-brand); color: #fff; }',
       '.dsn-cfg-btn.ghost { background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.14)); color: inherit; }',
       '.dsn-cfg-btn:disabled { opacity: .45; cursor: default; }',
       '.dsn-cfg-note { font-size: 12px; color: var(--dsw-alias-label-secondary, inherit); }',
@@ -70,6 +73,8 @@ window.__ModuleLoader__.load({
     /** 极简状态：host 通道 + 是否需要提示授权。 */
     const store = {
       hostBackend: undefined,
+      /** 宿主的文案口径（diag.copy）：页面兜底通知尽量和宿主弹的一致。 */
+      copy: undefined,
       hint: null,
       listeners: new Set(),
       timers: new Set(),
@@ -193,8 +198,13 @@ window.__ModuleLoader__.load({
         if (api === undefined) return
         if (store.hostBackend !== 'none') return // host 已经发过了，不重复打扰
         if (api.permission !== 'granted') return
-        const notification = new api(item.name || 'DeepSeek Harness', {
-          body: item.body || '',
+        const copy = store.copy ?? {}
+        const title = copy.titleFrom === 'app'
+          ? (copy.fallbackName || item.name || 'DeepSeek Harness')
+          : (item.name || copy.fallbackName || 'DeepSeek Harness')
+        const body = copy.subtitle ? `${copy.subtitle} · ${item.body || ''}` : (item.body || '')
+        const notification = new api(title, {
+          body,
           tag: `dsh-notify-${item.seq}`,
           silent: false,
         })
@@ -297,11 +307,14 @@ window.__ModuleLoader__.load({
           const response = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' })
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           const data = await response.json()
-          if (data.diag && typeof data.diag.backend === 'string') {
-            store.hostBackend = data.diag.backend
-            updateHint()
+          if (data.diag) {
+            if (typeof data.diag.backend === 'string') {
+              store.hostBackend = data.diag.backend
+              updateHint()
+            }
+            if (data.diag.copy && typeof data.diag.copy === 'object') store.copy = data.diag.copy
+            setHostPlatform(data.diag.platform)
           }
-          if (data.diag) setHostPlatform(data.diag.platform)
           if (typeof data.head === 'number') {
             if (since === null) {
               // 没经过 SSE 就用 head（不回放历史）；从 SSE 掉下来就用 lastSeq 续上
@@ -407,6 +420,7 @@ window.__ModuleLoader__.load({
           if (stopped) return
           if (data.diag) {
             if (typeof data.diag.backend === 'string') store.hostBackend = data.diag.backend
+            if (data.diag.copy && typeof data.diag.copy === 'object') store.copy = data.diag.copy
             setHostPlatform(data.diag.platform)
             updateHint()
           }

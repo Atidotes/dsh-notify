@@ -232,12 +232,15 @@ host 半（通知引擎，唯一事件观察者）
   user-questions/request  ← ctx.on(..., { prepend: true })
   agent/status            ← emit，所有监听都会执行
         │
-        ├─→ ① 系统通知：terminal-notifier / osascript / 自定义命令
-        │        （跟浏览器无关，关掉浏览器也在）
+        ├─→ ① 系统通知（跟浏览器无关，关掉浏览器也在）
+        │      macOS  ：自建 Swift 通知 app（默认）→ terminal-notifier → osascript → command
+        │      Windows：自绘置顶弹出窗（默认）/ PowerShell Toast / SnoreTooth / command
+        │      Linux  ：notify-send → command
         └─→ 环形缓冲 + SSE 推送 + GET /dsh-notify/feed（轮询兜底）
                               │
 client 半（只做兜底）──────────┘ host 无通道时 → 浏览器 Notification 补位
-                                 （弹的也是系统横幅；页面开着即可）
+                                 （弹的也是系统横幅；页面开着即可，
+                                   文案跟随宿主 copy 配置，提醒也会重复）
 ```
 
 数据面用 **SSE 长连接**（`/dsh-notify/stream`），轮询（`/dsh-notify/feed`）只作兜底：后台标签页里浏览器会限流定时器（Chrome 挂后台几分钟后降到每分钟一次），长连接不受影响。
@@ -257,6 +260,9 @@ client 半（只做兜底）──────────┘ host 无通道时 
 浏览器里的 toast 只活在页面里；host 进程（正在服务 `http://127.0.0.1:3080` 的那个进程）一直活着，所以由它直接调系统通知：
 
 ```
+自建 Swift 通知 app（默认；官方 UNUserNotificationCenter → 官方图标 + 官方应用名）
+        │  构建失败
+        ▼
 terminal-notifier（装了就用它：可点击打开页面、-group 去重）
         │  没装
         ▼
@@ -356,7 +362,7 @@ linux: auto/notify-send）。平台还没识别出来时只显示跨平台字段
 | `minRunMs` | `3000` | 跑多久才算「值得通知」，避免秒回也弹窗 |
 | `includeSubagents` | `false` | 子代理 / teammate 会话是否也通知 |
 | `backend` | `auto` | `auto` / `osascript` / `terminal-notifier` / `notify-send` / `snoretoast` / `powershell` / `banner` / `command` |
-| `command` | — | `backend: 'command'` 时的 argv 模板，占位符 `{title}` `{subtitle}` `{body}` |
+| `command` | — | `backend: 'command'` 时的 argv 模板，占位符 `{title}` `{subtitle}` `{body}` `{app}` `{icon}` |
 | `openUrl` | `http://127.0.0.1:3080` | 点击通知打开的地址（仅 terminal-notifier 支持） |
 | `windowsStyle` | `banner` | Windows 通知形态：`banner`（自绘弹出窗，不受专注助手影响）或 `toast`（系统通知，进通知中心） |
 | `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
@@ -400,9 +406,14 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
   Windows 上「弹的是右下角 Toast 还是右上角弹出窗」就由后两个值决定。
   `windowsStyle` 属于 GUI 管理的键 —— 它显示 `toast` 就说明你在卡片里选过系统通知
   （在 `config.json` 里写这个键是无效的）。
-- `delivered` → 已 spawn 的通知命令数；`failed` → 其中**非 0 退出**的次数。
+- `delivered` → 已 spawn 的通知命令数（**发起**次数，不代表系统真的显示了）；
+  `failed` → 其中**非 0 退出**的次数；`lastDeliveredAt` 只在退出码 0 时更新，
+  失败时间记在 `lastFailureAt`（这样"最后一次成功"不会被失败刷掉）。
 - `configConflicts` → `config.json` 里被 GUI 接管的键（写了也不生效，列出来提醒你）。
-- `lastFallback` → 横幅失败后退回系统 Toast 时记 `toast`（区分「本来就该弹 Toast」和「兜底」）。
+- `lastFallback` → 横幅失败后退回系统 Toast 时记 `toast`（区分「本来就该弹 Toast」和「兜底」）；
+  一直保留到下一次兜底，方便事后复盘。
+- `copy` → 当前生效的文案口径（`titleFrom` / `fallbackName` / `subtitle`）：页面兜底通知据此
+  与宿主保持一致（浏览器通知没有副标题字段，`subtitle` 会作为正文前缀）。
 - `lastError` / `lastExitCode` / `lastStderr` → 最近一次失败的原因、退出码、命令的 stderr 尾巴。
   PowerShell 出错时**退出码经常是 0**，所以脚本被包成「失败就非 0 退出 + 写 stderr」，
   Windows 上「什么都没弹」时这三个字段就是根因所在。
@@ -411,7 +422,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 
 ```bash
 npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（74 条）
-npm run smoke                    # host 半逻辑自测（103 条断言：真机 bug 回归 + 跨平台/平台分支）
+npm run smoke                    # host 半逻辑自测（106 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）
@@ -443,7 +454,9 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu / macOS / Windows 三个系统上�
 
 0. **安装形态**：`github:` 安装跟 HEAD 走、会忽略 `files` 白名单，所以**只推能通过
    CI 的提交**；`link:` 安装（开发用）不会替你装这个包自己的依赖 —— 在插件目录里
-   先跑一次 `npm install`，否则 `dsh/host.js` 一 import 就报缺 `@deepseek-ai/schemastery`。
+   先跑一次 `npm install`，否则 `dsh/host.js` 一 import 就报缺 `@deepseek-ai/schemastery`
+   （`npm run check` 会先替你确认这一点）。仓库**不提交 lockfile**：这个包是当 git 依赖
+   被消费的，锁文件对消费方无效，CI 用 `npm install` + `~` 版本区间保证可复现。
 
 
 1. **通知图标 / 应用名**：macOS 的 `osascript` 通知恒定归属「脚本编辑器」，`display notification` 也不能指定图标。所以插件会**自编译一个 `DeepSeek Harness.app`**（Swift + 官方 `UNUserNotificationCenter`，带官方 DeepSeek 图标）来发通知 —— 首次使用自动构建（`swiftc` 编译 + 签名 + 注册，约 2–5 秒），失败则退回 `osascript`（图标变回「脚本编辑器」，`diag.notifier` 会显示 `failed`）。宿主进程若没有写 `~/.dsh` 的权限，先手动跑一次 `npm run notifier`（插件会复用已存在的 app）。
