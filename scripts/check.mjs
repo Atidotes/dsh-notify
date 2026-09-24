@@ -101,6 +101,7 @@ for (const [needle, label] of [
   ['横幅降级', '横幅装饰性语句逐条兜底（单句报错只丢外观，不能整条通知消失）'],
   ['attachToastFallback', '横幅失败退回系统 Toast（绝不允许「什么都没弹」）'],
   ['lastStderr', '诊断暴露通知命令的 stderr / 退出码（Windows 排错靠它定位）'],
+  ['Error.WriteLine((', '诊断行用「双层括号 + 拼接」：-f 写在方法参数里会被逗号拆开而报 FormatException'],
   ['node:fs/promises', '文件读写走 node:fs（不再依赖 /bin/sh、/bin/cat）'],
 ]) {
   if (hostSource.includes(needle)) ok(label)

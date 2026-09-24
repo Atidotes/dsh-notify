@@ -471,7 +471,10 @@ export function powershellBannerScript(options) {
     click,
     autoClose,
     // 把卡片实际几何写进 stderr（进 diag.lastStderr）：下次调版式不用再猜
-    soft('[Console]::Error.WriteLine("dsh-notify 卡片 {0}x{1}（正文 {2}px / scale {3}）" -f $W, $H, $bodyH, $scale)'),
+    // 用「双层括号 + 拼接」而不是 -f：在 .NET 方法的参数表里，逗号是**参数分隔符**，
+    // `WriteLine("…{1}…" -f $W, $H, …)` 会被解析成 `-f $W` 再加三个参数 →
+    // FormatException「Index must be less than the size of the argument list」。
+    soft('[Console]::Error.WriteLine(("dsh-notify 卡片 " + $W + "x" + $H + "（正文 " + $bodyH + "px / scale " + $scale + "）"))'),
     '$form.ShowDialog() | Out-Null',
   ].filter((line) => line !== '').join('; '))
 }
