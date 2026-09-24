@@ -195,7 +195,7 @@ npm run windows-check
   `powershell.exe`（5.1）优先，`windows-check` 第 2 段可以单独验证 Toast 路线。
 
 > ⚠️ 诚实说明：Windows / Linux 后端是按两平台的官方机制实现、并用**参数级单元测试**
-> 覆盖的（87 条冒烟里 24 条覆盖 Windows / Linux / 平台分支），但我手上没有 Windows/Linux 机器做真机验证。
+> 覆盖的（88 条冒烟里 25 条覆盖 Windows / Linux / 平台分支），但我手上没有 Windows/Linux 机器做真机验证。
 > macOS 那条路是真机跑通的；Windows 上出问题就用 `npm run windows-check` 生成的两段
 > 自检脚本（就是插件真正会 spawn 的那两条命令）在真机上单独验。
 
@@ -407,7 +407,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 
 ```bash
 npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（69 条）
-npm run smoke                    # host 半逻辑自测（87 条断言：真机 bug 回归 + 跨平台/平台分支）
+npm run smoke                    # host 半逻辑自测（88 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）

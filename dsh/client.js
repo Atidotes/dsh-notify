@@ -383,9 +383,10 @@ window.__ModuleLoader__.load({
      * 其它平台的值仍然保留词典（当前值不在列表里时会补进去，避免下拉"吃掉"已配置的值）。
      */
     const BACKEND_BY_PLATFORM = {
-      darwin: ['auto', 'osascript', 'terminal-notifier'],
-      win32: ['auto', 'banner', 'powershell', 'snoretoast'],
-      linux: ['auto', 'notify-send'],
+      // 'command'（自定义 argv 模板）在任何平台都能用，所以每个平台都列
+      darwin: ['auto', 'command', 'osascript', 'terminal-notifier'],
+      win32: ['auto', 'command', 'banner', 'powershell', 'snoretoast'],
+      linux: ['auto', 'command', 'notify-send'],
     }
     const BACKEND_ALL = ['auto', 'command', 'banner', 'powershell', 'snoretoast', 'osascript', 'terminal-notifier', 'notify-send']
 

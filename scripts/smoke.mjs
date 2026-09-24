@@ -981,6 +981,13 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     } else {
       bad(`通道选项没按平台过滤：win=${winBackends.join('/')} mac=${macBackends.join('/')}`)
     }
+    // 'command' 是任意平台都能用的通道，每个平台的列表里都必须有（否则 README 那条路仍不可达）
+    if (winBackends.includes('command') && macBackends.includes('command')
+      && card.optionsFor({ key: 'backend', values: ['auto'] }, 'linux', 'auto').includes('command')) {
+      ok("三个平台的通道下拉都包含 'command'（自定义命令在任何平台都可选）")
+    } else {
+      bad('有平台的通道下拉缺少 command')
+    }
     if (card.optionsFor({ key: 'backend', values: ['auto'] }, 'linux', 'powershell').includes('powershell')) {
       ok('已配置但不在当前平台列表里的通道值会补进下拉（不会显示错值）')
     } else {
