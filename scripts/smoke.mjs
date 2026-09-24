@@ -34,9 +34,16 @@ try {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const REAL = process.argv.includes('--real')
+
+// 这套冒烟是「mock 子进程 + 断言 argv」的：把基准平台钉在 darwin，它在 Linux / Windows 的
+// CI 上同样有效（要别的平台语义的用例自己用 withPlatform() 覆盖）。
+// `--real` 会真的弹通知，那必须用真实平台。
+if (!REAL) Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
 const FEED_PATH = '/dsh-notify/feed'
 const failures = []
 const captured = []
+/** 被 terminate() 的通知进程 argv（重提醒替换旧窗口的行为用它断言）。 */
+const terminated = []
 
 /**
  * 断言 osascript 具体 argv 的用例要把通道钉死在 osascript：
@@ -106,8 +113,17 @@ function makeCtx(options = {}) {
         ? (options.bundleId ?? 'com.dsh-notify.notifier.3')
         : spec.argv[0] === '/usr/bin/xcrun' ? '/fake/sdk' : ''
       const stderrText = failed && typeof options.failStderr === 'string' ? options.failStderr : ''
+      // 横幅进程在真机上会停留 bannerDurationMs（done 很晚才落地）；需要模拟这一点时
+      // 用 hangBanner，否则 done 立刻落地会让"重提醒替换旧窗"的簿记被提前清掉。
+      const isBanner = spec.argv.some((part) => String(part).includes('ShowDialog'))
+      const done = isBanner && options.hangBanner === true
+        ? new Promise(() => {})
+        : Promise.resolve({ exitCode, signal: null })
       return {
-        done: Promise.resolve({ exitCode, signal: null }),
+        terminate() {
+          terminated.push(spec.argv)
+        },
+        done,
         collected: {
           stdout: { readFrom: () => ({ text: stdoutText, nextOffset: 0, lossy: false }) },
           stderr: { readFrom: () => ({ text: stderrText, nextOffset: 0, lossy: false }) },
@@ -1201,6 +1217,41 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
   } else {
     bad('没有注册 agent/status 监听（应该永远注册）')
   }
+}
+
+// --- 21. 回归：同一条事件的重提醒替换旧窗口，不叠罗汉 ------------------------
+{
+  terminated.length = 0
+  captured.length = 0
+  const bench = makeCtx({
+    hangBanner: true,
+    executables: { 'powershell.exe': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    sessions: { 'session-27': { header: { cwd: 'C:\\work\\proj' } } },
+  })
+  await withPlatform('win32', async () => {
+    // 15ms 提醒一次，只开自绘横幅
+    apply(bench.ctx, {
+      remindEveryMs: 15, maxReminders: 5, minRunMs: 0,
+      backend: 'banner', windowsStyle: 'banner', bannerDurationMs: 8000,
+    })
+  })
+  // 真机上 next() 要等审批被回答才 settle，提醒才会持续；mock 里补一个"悬而不决"的下游
+  // 监听，把这段等待期模拟出来（否则提醒计划会在 next() 落地的瞬间被停掉）。
+  // 真机上 next() 要等审批被回答才 settle，提醒才会持续；这里用一个可控的 gate 模拟
+  // "还没被回答"的等待期，读完计数后再放行（放行后插件会自己停掉提醒计划）。
+  let answer = () => {}
+  const gate = new Promise((resolveGate) => { answer = resolveGate })
+  bench.ctx.on('approval/request', () => gate)
+  const pendingPlan = bench.call('approval/request', { agent: { id: 'session-27' }, toolName: 'bash' })
+  if (typeof pendingPlan?.catch === 'function') pendingPlan.catch(() => {})
+  await new Promise((resolve) => setTimeout(resolve, 90))
+  if (captured.length >= 2 && terminated.length >= 1) {
+    ok(`重提醒前会终止上一个同 group 的窗口（弹了 ${captured.length} 次、终止 ${terminated.length} 次）`)
+  } else {
+    bad(`重提醒没有替换旧窗口：弹了 ${captured.length} 次、终止 ${terminated.length} 次`)
+  }
+  answer('answered') // 审批被回答 → 计划停掉，不再有定时器
+  await new Promise((resolve) => setTimeout(resolve, 30))
 }
 
 // 清理用例产生的临时目录（放在最后：后面的用例还会新建目录）

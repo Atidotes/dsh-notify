@@ -10,7 +10,8 @@
     "smoke": "node scripts/smoke.mjs",
     "preview": "node scripts/preview.mjs",
     "windows-check": "node scripts/windows-check.mjs",
-    "notifier": "node scripts/notifier.mjs"
+    "notifier": "node scripts/notifier.mjs",
+    "prepack": "npm run check && npm run smoke"
   },
   "exports": {
     ".": "./dsh/host.js",
@@ -25,10 +26,12 @@
     "icon.svg",
     "locale/*.json",
     "scripts/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": ">=0.2.0"
   },
   "keywords": [
     "deepseek-harness",
@@ -54,6 +57,15 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "~3.18.4"
+  },
+  "author": "Atidotes <100501531+Atidotes@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Atidotes/dsh-notify.git"
+  },
+  "homepage": "https://github.com/Atidotes/dsh-notify#readme",
+  "bugs": {
+    "url": "https://github.com/Atidotes/dsh-notify/issues"
   }
 }

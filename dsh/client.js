@@ -22,7 +22,11 @@ window.__ModuleLoader__.load({
     const FEED_PATH = '/dsh-notify/feed'
     const STREAM_PATH = '/dsh-notify/stream'
     const POLL_MS = 2_000
+    /** SSE 掉线后多久重连一次（期间用轮询兜底）。 */
+    const STREAM_RETRY_MS = 30_000
     const CSS = [
+      '.dsn-hint-close { flex: none; margin-left: 2px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; opacity: .7; font-size: 14px; line-height: 1; cursor: pointer; }',
+      '.dsn-hint-close:hover { opacity: 1; background: rgba(127,127,127,.18); }',
       '.dsn-hint { position: fixed; top: 14px; right: 14px; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: 360px; padding: 8px 10px; border-radius: 10px; background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-layer-1, #fff)); border: 1px solid var(--dsw-alias-state-warn-primary, rgba(250,157,59,.5)); box-shadow: 0 10px 28px rgba(0,0,0,.18); font-family: inherit; font-size: 12px; line-height: 17px; color: var(--dsw-alias-label-secondary, inherit); }',
       '.dsn-hint button { flex: none; border: none; border-radius: 6px; padding: 3px 9px; background: #07c160; color: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }',
       // 配置卡（Plugins → dsh-notify → 配置区）：面板 + 分组 + 平台徽标
@@ -136,6 +140,25 @@ window.__ModuleLoader__.load({
       emit()
     }
 
+    /** 提示条被手动关掉过就记一笔（localStorage；不可用时静默）。 */
+    const HINT_DISMISSED_KEY = 'dsh-notify/hint-dismissed'
+
+    function readHintDismissed() {
+      try {
+        return globalThis.localStorage?.getItem(HINT_DISMISSED_KEY) === '1'
+      } catch {
+        return false
+      }
+    }
+
+    function rememberHintDismissed() {
+      try {
+        globalThis.localStorage?.setItem(HINT_DISMISSED_KEY, '1')
+      } catch {
+        // 隐私模式写不进去，忽略
+      }
+    }
+
     function updateHint() {
       const api = notificationApi()
       if (api === undefined || store.hostBackend !== 'none') {
@@ -191,6 +214,7 @@ window.__ModuleLoader__.load({
     function applyItem(item) {
       try {
         if (!item || typeof item !== 'object') return
+        if (typeof item.seq === 'number') lastSeq = item.seq
         if (item.kind === 'status') {
           // 'unresolved' = 宿主还在探测：不要用它覆盖已知结论（否则会把 'none' 抹掉，
           // 该用浏览器兜底时反而不兜底）
@@ -213,6 +237,7 @@ window.__ModuleLoader__.load({
     // -----------------------------------------------------------------------
     function Pill() {
       const [, setTick] = React.useState(0)
+      const [dismissed, setDismissed] = React.useState(readHintDismissed)
       React.useEffect(() => {
         const update = () => setTick((value) => value + 1)
         store.listeners.add(update)
@@ -220,12 +245,16 @@ window.__ModuleLoader__.load({
           store.listeners.delete(update)
         }
       }, [])
-      if (store.hint === null) return null
-      return h('div', { className: 'dsn-hint', role: 'status' },
-        h('span', null, store.hint === 'denied'
+      if (store.hint === null || dismissed) return null
+      return h('div', { className: 'dsn-hint' },
+        h('span', { role: 'status' }, store.hint === 'denied'
           ? '系统通知通道不可用，且浏览器通知被拒绝 —— 请在浏览器站点设置里允许通知。'
           : '系统通知通道不可用。开启浏览器通知后，只要这个页面开着，切到别的网页也能收到提醒。'),
         store.hint === 'denied' ? null : h('button', { onClick: requestPermission }, '开启浏览器通知'),
+        h('button', {
+          type: 'button', className: 'dsn-hint-close', 'aria-label': '关闭提示',
+          onClick: () => { setDismissed(true); rememberHintDismissed() },
+        }, '×'),
       )
     }
 
@@ -251,6 +280,10 @@ window.__ModuleLoader__.load({
       let timer = null
       let source = null
       let polling = false
+      let streamRetry = null
+      let pollFailures = 0
+      // 最后一条已处理条目的 seq：SSE 掉线改轮询时用它续上，否则切换窗口里的通知会丢。
+      let lastSeq
 
       function scheduleTick() {
         if (stopped || !polling) return
@@ -271,7 +304,12 @@ window.__ModuleLoader__.load({
           if (data.diag) setHostPlatform(data.diag.platform)
           if (typeof data.head === 'number') {
             if (since === null) {
-              since = data.head
+              // 没经过 SSE 就用 head（不回放历史）；从 SSE 掉下来就用 lastSeq 续上
+              since = lastSeq === undefined ? data.head : Math.min(lastSeq, data.head)
+              if (since < data.head) {
+                const items = Array.isArray(data.items) ? data.items : []
+                for (const item of items) applyItem(item)
+              }
             } else if (data.head > since) {
               const items = Array.isArray(data.items) ? data.items : []
               since = data.head
@@ -279,8 +317,15 @@ window.__ModuleLoader__.load({
             }
           }
         } catch (error) {
-          // 兜底通道不可用不影响系统通知，静默重试。
+          // 兜底通道不可用不影响系统通知；但连续失败要说一声，别让人以为"后端就是这么安静"。
+          pollFailures += 1
+          if (pollFailures === 3) {
+            console.warn(`[dsh-notify] 页面兜底通知接口连续失败 ${pollFailures} 次，暂时拿不到通知：${String(error)}`)
+          }
+          scheduleTick()
+          return
         }
+        pollFailures = 0
         scheduleTick()
       }
 
@@ -288,6 +333,28 @@ window.__ModuleLoader__.load({
         if (stopped || polling) return
         polling = true
         void tick()
+      }
+
+      function stopPolling() {
+        polling = false
+        if (timer !== null) {
+          clearTimeout(timer)
+          store.timers.delete(timer)
+          timer = null
+        }
+      }
+
+      /** SSE 掉线后隔一会儿再试一次：不永久降级成轮询。 */
+      function scheduleStreamRetry() {
+        if (stopped || streamRetry !== null) return
+        streamRetry = setTimeout(() => {
+          store.timers.delete(streamRetry)
+          streamRetry = null
+          if (stopped || source !== null) return
+          stopPolling()
+          startStream()
+        }, STREAM_RETRY_MS)
+        store.timers.add(streamRetry)
       }
 
       function stopStream() {
@@ -315,10 +382,11 @@ window.__ModuleLoader__.load({
             }
           }
           source.onerror = () => {
-            // SSE 不可用（服务重启、代理干扰）：退回轮询，兜底通道不丢。
+            // SSE 不可用（服务重启、代理干扰）：退回轮询保证不丢，同时排队重连。
             if (stopped) return
             stopStream()
             startPolling()
+            scheduleStreamRetry()
           }
         } catch (error) {
           startPolling()
@@ -326,11 +394,17 @@ window.__ModuleLoader__.load({
       }
 
       // SSE 长连接本身不返回 diag：页面用 SSE 时也先取一次，配置卡才能知道宿主平台。
+      const controller = typeof AbortController === 'function' ? new AbortController() : undefined
       void (async () => {
         try {
-          const response = await fetch(FEED_PATH, { headers: { accept: 'application/json' }, cache: 'no-store' })
+          const response = await fetch(FEED_PATH, {
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
+            signal: controller?.signal,
+          })
           if (!response.ok) return
           const data = await response.json()
+          if (stopped) return
           if (data.diag) {
             if (typeof data.diag.backend === 'string') store.hostBackend = data.diag.backend
             setHostPlatform(data.diag.platform)
@@ -345,23 +419,32 @@ window.__ModuleLoader__.load({
 
       return () => {
         stopped = true
+        controller?.abort()
         stopStream()
+        if (streamRetry !== null) {
+          clearTimeout(streamRetry)
+          store.timers.delete(streamRetry)
+          streamRetry = null
+        }
         if (timer !== null) {
           clearTimeout(timer)
           store.timers.delete(timer)
+          timer = null
         }
       }
     }
 
     /** 注册资源：优先用 ctx.effect 托管，缺失时直接登记。 */
     function useEffectScope(scope, register) {
-      try {
-        if (typeof scope.effect === 'function') {
+      if (typeof scope.effect === 'function') {
+        try {
           scope.effect(register)
-          return
+        } catch (error) {
+          // 这里**不能**退回直接 register()：effect 可能已经登记过一次，再注册会多出
+          // 一份永不释放的注册（比如重复的 locale 词条 / 无主的 slot 条目）。
+          console.error('[dsh-notify] ctx.effect 注册失败', error)
         }
-      } catch (error) {
-        console.error('[dsh-notify] ctx.effect 注册失败', error)
+        return
       }
       try {
         register()
@@ -844,7 +927,9 @@ window.__ModuleLoader__.load({
           }, t('discard')),
           !writable ? h('span', { className: 'dsn-cfg-note' }, t('readOnly')) : null,
           dirty ? h('span', { className: 'dsn-cfg-note' }, t('dirty')) : null,
-          invalidCount > 0 ? h('span', { className: 'dsn-cfg-error' }, t('invalidFields')) : null,
+          invalidCount > 0
+            ? h('span', { className: 'dsn-cfg-error', role: 'status', 'aria-live': 'polite' }, t('invalidFields'))
+            : null,
           failed ? h('span', { className: 'dsn-cfg-error', role: 'alert' }, t('saveFailed')) : null,
         ),
       )

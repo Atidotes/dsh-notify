@@ -8,7 +8,7 @@
  * 可能得重启才发现。零依赖，只用 Node 内置模块。
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -95,6 +95,43 @@ try {
   else bad('dsh/host.js 导出的 apply / Config 不完整')
 } catch (error) {
   bad(`dsh/host.js 无法 import：${error instanceof Error ? error.message : String(error)}`)
+}
+
+// --- 生成的 PowerShell：交给 PowerShell 自己的解析器看一遍 ---------------------
+// 只做 AST 解析、不执行（不需要 WinForms / Windows）。c600342 那类「字符串格式化写错，
+// 整段脚本一跑就抛」的 bug，单靠字符串断言是抓不到的；本机有 pwsh 就跑，没有就跳过。
+{
+  const candidate = [join(root, '.pstools', 'pwsh'), 'pwsh', 'powershell']
+    .find((exe) => {
+      if (exe.includes(sep) && !existsSync(exe)) return false
+      const probe = spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { encoding: 'utf8' })
+      return probe.status === 0
+    })
+  if (candidate === undefined) {
+    warn('没找到 pwsh / powershell，跳过 PowerShell 脚本解析检查（可选，不影响其它规则）')
+  } else {
+    const host = await import(pathToFileURL(join(root, 'dsh/host.js')).href)
+    const cases = {
+      banner: host.powershellBannerScript({
+        title: '等待审批', body: '需要审批：bash', iconPath: 'C:\\Program Files\\a&b\\icon.png',
+        position: 'topright', width: 350, minWidth: 310, radius: 40, height: 0,
+        durationMs: 8000, openUrl: 'http://127.0.0.1:3080/',
+      }),
+      toast: host.powershellToastScript('等待审批', '需要审批：bash', 'DeepSeek.Harness', 'C:\\Program Files\\a&b\\icon.png'),
+    }
+    const dir = join(root, '.smoke-tmp', 'ps-parse')
+    mkdirSync(dir, { recursive: true })
+    for (const [name, text] of Object.entries(cases)) {
+      const file = join(dir, `${name}.ps1`)
+      writeFileSync(file, text, 'utf8')
+      const cmd = `$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('${file.replaceAll("'", "''")}', [ref]$null, [ref]$errors); `
+        + 'if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Output $_.Message }; exit 1 }'
+      const parsed = spawnSync(candidate, ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' })
+      if (parsed.status === 0) ok(`${name} 脚本能被 PowerShell 解析器接受（${candidate}）`)
+      else bad(`${name} 脚本解析报错：${(parsed.stdout ?? '').trim().split('\n')[0] || (parsed.stderr ?? '').trim().split('\n')[0]}`)
+    }
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 const dynamicImports = [...hostSource.matchAll(/import\((['"])([^'"]+)\1\)/g)].map((m) => m[2])

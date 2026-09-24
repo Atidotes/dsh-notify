@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # 不用 npm ci：仓库不提交 lockfile（这个包按 git 依赖被消费，锁文件对消费方无效）
+      - run: npm install --no-audit --no-fund
+      # 插件的真机行为在 Windows/macOS 才有意义，但 check/smoke 都是
+      # 「mock 子进程 + 断言 argv / 解析生成的 PowerShell」，三个系统跑都有效。
+      - run: npm run check
+      - run: npm run smoke

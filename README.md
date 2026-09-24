@@ -120,6 +120,9 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 静默吞掉 —— 表现就是「Windows 上什么都没弹」，而且插件完全看不出来（命令跑成功了，
 只是系统没显示）。自绘窗口不受这些影响，是「一定要弹出来」唯一可靠的形态。
 
+> 未处理的审批每 30 秒重提醒一次：新横幅会**先关掉上一个同一条审批的窗口**再弹，
+> 所以屏幕上始终只有一张（不会越叠越多）。
+>
 > 代价说清楚：`banner` **不是系统通知** —— 不进「通知中心」、不受专注助手管理、
 > 错过就没了。想要进通知中心的系统 Toast，把 `windowsStyle` 设成 `'toast'`。
 > 审批这类「等用户处理」的场景，插件本来就会每 30 秒重提醒（新横幅会再出现一条）。
@@ -283,7 +286,7 @@ GUI 配置卡（写进 profile 的 cordis.patch.yml）
 > `bannerHeight` `bannerDurationMs`。
 > 其余键继续走 `config.json`：`command`（argv 模板）、`iconPath` / `iconPngPath`、
 > `notifierDir`、`appName`、`snoretoastCommand`、`windowsAppId`、`openUrl`、
-> `feedPath` / `streamPath`、`detailChars`、`includeSubagents` 等。
+> `detailChars`、`includeSubagents`、`iconPngPath` 等。
 >
 > 平台专属的字段默认只在对应平台上显示；在卡片顶部打开「显示所有平台的字段」就能在
 > 任何平台上看到并预配置它们（比如在 macOS 上先把 Windows 弹出窗参数配好）。
@@ -365,10 +368,13 @@ linux: auto/notify-send）。平台还没识别出来时只显示跨平台字段
 | `snoretoastCommand` | `SnoreToast.exe` | Windows：SnoreToast 的命令名或绝对路径 |
 | `windowsAppId` | 系统 PowerShell 的 AUMID | Windows：PowerShell Toast 用的 AppUserModelID |
 | `linuxUrgentUrgency` | `critical` | Linux：审批/提问的 `notify-send -u` 级别 |
-| `feedPath` | `/dsh-notify/feed` | 页面轮询兜底的同源路由 |
-| `streamPath` | `/dsh-notify/stream` | 页面 SSE 即时推送的同源路由 |
+
 
 ## 诊断
+
+> 页面用的两个同源路由（`/dsh-notify/feed`、`/dsh-notify/stream`）是**固定的**，
+> 不开放改（host 与 client 两半共用同一份常量，改了任何一边都会 404）。
+
 
 ```bash
 # 通知数据源 + 运行时诊断（通道、最近错误、最近命令、投递计数）
@@ -404,14 +410,20 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 ## 自检与验证
 
 ```bash
-npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（72 条）
-npm run smoke                    # host 半逻辑自测（102 条断言：真机 bug 回归 + 跨平台/平台分支）
+npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（74 条）
+npm run smoke                    # host 半逻辑自测（103 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）
 npm run notifier                 # 预建通知 app（幂等，可加 --test 弹测试通知）
 npm run notifier -- --test       # 建好后弹一条测试通知，用来确认图标
 npm run smoke -- --real          # 真的弹出系统通知，确认通道可用
 ```
+
+`check` 里除了清单/语法，还会：真的去 `import` 一次 `dsh/host.js`（依赖没装会当场报出来）、
+以及**用 PowerShell 自己的解析器**把生成的两段脚本解析一遍（本机有 `pwsh` / `powershell` 时；
+抓 `c600342` 那类"字符串格式化写错、脚本一跑就抛"的问题，不需要 Windows / WinForms）。
+CI（`.github/workflows/ci.yml`）在 Ubuntu / macOS / Windows 三个系统上跑 `check` + `smoke`：
+冒烟是"mock 子进程 + 断言 argv"的套件，基准平台钉在 darwin，所以三个系统跑的是同一套语义。
 
 `npm run smoke` 里前两条用例就是回归测试：先注册一个完全复刻 `ui-approval` 的 gate，再加载插件，断言通知在 gate 之前发出、且请求被原样交还。
 
@@ -428,6 +440,11 @@ npm run smoke -- --real          # 真的弹出系统通知，确认通道可用
   除此之外没有别的运行时依赖（`npm run check` 除了断言顶层 import 只有它，还会真的去解析并 import 一次）。
 
 ## 已知限制
+
+0. **安装形态**：`github:` 安装跟 HEAD 走、会忽略 `files` 白名单，所以**只推能通过
+   CI 的提交**；`link:` 安装（开发用）不会替你装这个包自己的依赖 —— 在插件目录里
+   先跑一次 `npm install`，否则 `dsh/host.js` 一 import 就报缺 `@deepseek-ai/schemastery`。
+
 
 1. **通知图标 / 应用名**：macOS 的 `osascript` 通知恒定归属「脚本编辑器」，`display notification` 也不能指定图标。所以插件会**自编译一个 `DeepSeek Harness.app`**（Swift + 官方 `UNUserNotificationCenter`，带官方 DeepSeek 图标）来发通知 —— 首次使用自动构建（`swiftc` 编译 + 签名 + 注册，约 2–5 秒），失败则退回 `osascript`（图标变回「脚本编辑器」，`diag.notifier` 会显示 `failed`）。宿主进程若没有写 `~/.dsh` 的权限，先手动跑一次 `npm run notifier`（插件会复用已存在的 app）。
 

@@ -147,11 +147,12 @@ export const DEFAULT_CONFIG = {
   bannerHeight: 0,
   /** banner 模式自动关闭的毫秒数；0 = 一直显示直到点击关闭。 */
   bannerDurationMs: 8_000,
-  /** 页面卡片轮询的同源路由。 */
-  feedPath: '/dsh-notify/feed',
-  /** 页面即时推送（SSE）的同源路由。 */
-  streamPath: '/dsh-notify/stream',
 }
+
+/** 页面轮询兜底的同源路由（host / client 两半共用的唯一来源，不开放配置）。 */
+export const FEED_PATH = '/dsh-notify/feed'
+/** 页面即时推送（SSE）的同源路由。 */
+export const STREAM_PATH = '/dsh-notify/stream'
 
 /**
  * 可配置字段的 schema：**只有标了 `.volatile()` 的字段会出现在 GUI 的插件配置卡里**
@@ -580,6 +581,8 @@ export function apply(ctx, config = {}) {
   /** sessionId → 本轮 running 开始时间。 */
   const runs = new Map()
   const timers = new Set()
+  /** 同 group 的最后一个通知进程：重提醒前先终止它，避免窗口叠罗汉。 */
+  const notifyProcesses = new Map()
   let disposed = false
   let backendPromise
 
@@ -719,6 +722,9 @@ export function apply(ctx, config = {}) {
       }
     }
     openPlans.clear()
+    // 注意：这里**不**终止还活着的横幅窗口 —— 插件被重挂（改普通配置）时，
+    // 待审批的那条还没处理完，窗口留着比关掉更安全（进程由 harness 在退出时统一收）。
+    notifyProcesses.clear()
     for (const timer of timers) clearInterval(timer)
     timers.clear()
     for (const res of [...streams]) {
@@ -784,10 +790,10 @@ export function apply(ctx, config = {}) {
       ctx.inject(['webServer'], (scope) => {
         ctx.effect(() => scope.webServer.register({
           kind: 'exact',
-          path: cfg.feedPath,
+          path: FEED_PATH,
           handler: async (req, res) => {
             try {
-              const url = new URL(req.url ?? cfg.feedPath, 'http://localhost')
+              const url = new URL(req.url ?? FEED_PATH, 'http://localhost')
               const raw = url.searchParams.get('since')
               let since
               if (raw !== null) {
@@ -844,7 +850,7 @@ export function apply(ctx, config = {}) {
         // 每分钟一次），SSE 是长连接，后台标签页也能即时收到。
         ctx.effect(() => scope.webServer.register({
           kind: 'exact',
-          path: cfg.streamPath,
+          path: STREAM_PATH,
           handler: (req, res) => {
             try {
               res.writeHead(200, {
@@ -891,19 +897,28 @@ export function apply(ctx, config = {}) {
   // 会话信息
   // -------------------------------------------------------------------------
 
-  /** 从 live session header 里取 cwd / 是否子代理；取不到就当作主会话。 */
-  function sessionInfo(sessionId) {
-    try {
-      const sessions = service('sessions')
-      const session = sessions && typeof sessions.get === 'function' ? sessions.get(sessionId) : undefined
-      const header = session && session.header
-      if (!header) return {}
-      return {
-        cwd: header.cwd,
-        subagent: header.origin === 'subagent' || (header.delegationDepth || 0) > 0,
+  /**
+   * 从 live session header 里取 cwd / 是否子代理。
+   *
+   * 优先用事件里带来的 agent.session.header —— 这样不依赖 `sessions` 服务（精简 profile /
+   * headless 里可能没有，取不到时 `includeSubagents: false` 会静默失效）。
+   * 都拿不到就当作主会话（宁可多通知一条，也不要静默漏掉）。
+   */
+  function sessionInfo(agent, sessionId) {
+    let header = agent && agent.session ? agent.session.header : undefined
+    if (!header && sessionId !== undefined) {
+      try {
+        const sessions = service('sessions')
+        const session = sessions && typeof sessions.get === 'function' ? sessions.get(sessionId) : undefined
+        header = session && session.header
+      } catch {
+        header = undefined
       }
-    } catch {
-      return {}
+    }
+    if (!header) return {}
+    return {
+      cwd: header.cwd,
+      subagent: header.origin === 'subagent' || (header.delegationDepth || 0) > 0,
     }
   }
 
@@ -1043,13 +1058,27 @@ export function apply(ctx, config = {}) {
    * 下来、并等命令结束，把退出码与 stderr 尾巴写进 diag（`failed` / `lastExitCode` /
    * `lastStderr`），失败时同时升级 `lastError`。
    */
-  function spawnNotify(argv, cwd) {
+  function spawnNotify(argv, cwd, group) {
     const subprocess = subprocessService()
     if (!subprocess || typeof subprocess.spawn !== 'function') {
       lastError = 'subprocess 服务不可用'
       return false
     }
     try {
+      // 同一条事件的重提醒（默认每 30 秒）会再 spawn 一个窗口，位置上完全叠住，
+      // 剩下的旧窗口还点不动。这里先终止上一个同 group 的进程（窗口随之关闭）；
+      // macOS 的 -group 通知本来也是替换语义，进程已退出时 terminate 是 no-op。
+      if (typeof group === 'string' && group !== '') {
+        const previous = notifyProcesses.get(group)
+        if (previous !== undefined) {
+          notifyProcesses.delete(group)
+          try {
+            previous.terminate()
+          } catch {
+            // 已经退出就算了
+          }
+        }
+      }
       const handle = subprocess.spawn({
         argv,
         cwd: safeCwd(cwd),
@@ -1059,8 +1088,14 @@ export function apply(ctx, config = {}) {
       delivered += 1
       lastError = undefined
       lastCommand = argv.slice(0, 3).join(' ')
+      if (typeof group === 'string' && group !== '' && handle !== undefined) {
+        notifyProcesses.set(group, handle)
+      }
       if (handle && handle.done && typeof handle.done.then === 'function') {
         handle.done.then((outcome) => {
+          if (typeof group === 'string' && group !== '' && notifyProcesses.get(group) === handle) {
+            notifyProcesses.delete(group)
+          }
           // 卸载/退出时子进程会被终止，那不是「投递失败」，不要制造噪音。
           if (disposed) return
           const exitCode = outcome?.exitCode
@@ -1107,7 +1142,7 @@ export function apply(ctx, config = {}) {
         spawnNotify([
           ps.exe, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
           '-Command', powershellToastScript(message.title, message.body, cfg.windowsAppId, iconPath),
-        ], message.cwd)
+        ], message.cwd, message.group)
         // spawnNotify 会把 lastError 清空：把横幅失败的原因补回去，
         // 否则「右下角弹了 Toast」会掩盖「右上角为什么没弹」。
         if (bannerError !== undefined) lastError = `${bannerError}（已退回系统 Toast）`
@@ -1424,7 +1459,7 @@ export function apply(ctx, config = {}) {
         const script = subtitle === ''
           ? (sound === '' ? OSA_SCRIPTS.plain : OSA_SCRIPTS.withSound)
           : (sound === '' ? OSA_SCRIPTS.withSubtitle : OSA_SCRIPTS.withSubtitleSound)
-        spawnNotify([OSA_PATH, '-e', script, message.title, subtitle, message.body, sound || ''], message.cwd)
+        spawnNotify([OSA_PATH, '-e', script, message.title, subtitle, message.body, sound || ''], message.cwd, message.group)
         return
       }
       if (backend.kind === 'terminal-notifier') {
@@ -1485,7 +1520,7 @@ export function apply(ctx, config = {}) {
             durationMs: cfg.bannerDurationMs,
             openUrl: cfg.openUrl,
           }),
-        ], message.cwd)
+        ], message.cwd, message.group)
         // 自绘窗口失败时至少退回系统 Toast —— 不允许「什么都没有」。
         attachToastFallback(bannerHandle, message, iconPath)
         return
@@ -1496,7 +1531,7 @@ export function apply(ctx, config = {}) {
         spawnNotify([
           backend.exe, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
           '-Command', powershellToastScript(message.title, message.body, cfg.windowsAppId, iconPath),
-        ], message.cwd)
+        ], message.cwd, message.group)
         return
       }
 
@@ -1616,7 +1651,7 @@ export function apply(ctx, config = {}) {
   observeWaterfall('approval/request', (req) => {
       if (!cfg.approval) return undefined
       const sessionId = req && req.agent ? req.agent.id : undefined
-      const info = sessionInfo(sessionId)
+      const info = sessionInfo(req?.agent, sessionId)
       if (info.subagent && !cfg.includeSubagents) return undefined
       const name = conversationName(info.cwd)
       const toolName = clip(req?.toolName, 24) || '工具调用'
@@ -1653,7 +1688,7 @@ export function apply(ctx, config = {}) {
   observeWaterfall('user-questions/request', (request) => {
       if (!cfg.question) return undefined
       const sessionId = request && request.agent ? request.agent.id : undefined
-      const info = sessionInfo(sessionId)
+      const info = sessionInfo(request?.agent, sessionId)
       if (info.subagent && !cfg.includeSubagents) return undefined
       const name = conversationName(info.cwd)
       const first = Array.isArray(request?.questions) ? request.questions[0] : undefined
@@ -1697,7 +1732,7 @@ export function apply(ctx, config = {}) {
           if (!cfg.done) return
           const elapsed = Date.now() - startedAt
           if (elapsed < cfg.minRunMs) return
-          const info = sessionInfo(agent.id)
+          const info = sessionInfo(agent, agent.id)
           if (info.subagent && !cfg.includeSubagents) return
           const name = conversationName(info.cwd)
           const body = `任务完成 · ${humanDuration(elapsed)}`
