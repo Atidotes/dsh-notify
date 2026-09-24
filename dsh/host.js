@@ -110,8 +110,13 @@ const DEFAULT_CONFIG = {
   windowsStyle: 'banner',
   /** banner 模式的位置：topright / topleft / bottomright / bottomleft。 */
   bannerPosition: 'topright',
-  /** banner 模式的宽度（96 DPI 下的逻辑像素；对齐 macOS 通知横幅 ≈ 360）。 */
+  /**
+   * banner 模式的宽度**上限**（96 DPI 下的逻辑像素）：默认 360。
+   * 卡片会按标题/正文里更长的那条自己收窄（最短 `bannerMinWidth`），不会留一截空白。
+   */
   bannerWidth: 360,
+  /** banner 模式的宽度**下限**：想钉死宽度就把 `bannerMinWidth` 和 `bannerWidth` 设成同一个值。 */
+  bannerMinWidth: 240,
   /**
    * banner 模式的高度（96 DPI 下的逻辑像素）：
    *   0（默认）= 按正文实际行数**自适应**（单行 ≈ 54、两行 ≈ 70），不留白
@@ -329,8 +334,9 @@ export function powershellToastScript(title, body, appId, iconPath) {
  * 为什么需要它：Windows 的系统 Toast 位置由系统固定（右下角），微软明确表示没有
  * 提供修改位置的设置；SnoreToast 也没有位置参数。想放到右上角，只能自己画窗口。
  *
- * 外观对齐 macOS 通知横幅：宽度 360、高度 84、40×40 应用图标、13px 半粗标题 +
- * 12px 正文、16px 圆角浅色卡片、跟随系统浅色/深色外观、1px 描边。
+ * 外观对齐 macOS 通知横幅，但**卡片贴着内容走**：宽度按标题/正文里更长的那条量出来
+ * （默认 240–360 之间，不再固定 360 留一截空白），高度 = 标题 + 正文实际行高 + 5px；
+ * 34×34 应用图标、13px 半粗标题 + 12px 正文、14px 圆角浅色卡片、跟随系统浅色/深色外观。
  *
  * **DPI**：不调 `SetProcessDPIAware` 时，Windows 在 150% / 200% 缩放的屏幕上会把整个
  * 窗口当位图放大 —— 又大又糊（这是「弹出窗太大」的真正原因）。所以脚本先声明 DPI
@@ -372,6 +378,11 @@ export function powershellBannerScript(options) {
   const fixedHeight = Number.isFinite(options.height) && options.height > 0 ? Math.round(options.height) : 0
   const fitHeight = fixedHeight === 0
   /**
+   * 卡片宽度：options.width 是**上限**，再按标题/正文里更长的那条收窄，下限 options.minWidth。
+   * 想钉死宽度就把 minWidth 和 width 设成同一个值。
+   */
+  const minWidth = Number.isFinite(options.minWidth) && options.minWidth > 0 ? Math.round(options.minWidth) : 240
+  /**
    * 让一条**装饰性**语句失败时不至于整条通知消失。
    *
    * 教训（真机反馈）：给整段脚本套一个 try/catch 之后，任何一句装饰性语句报错都会被
@@ -391,7 +402,7 @@ export function powershellBannerScript(options) {
     'if ($scale -le 0.5 -or $scale -gt 4) { $scale = 1.0 }',
     // 版式基准（96 DPI）：紧贴内容 —— 左右内边距 10、图标 34、标题 13px、正文 12px、
     // **底部只留 5**（正文下面那块空白是「留白太多」的来源）
-    `$W = ${px(width)}`,
+    `$W = ${px(width)}; $minW = ${px(minWidth)}`,
     `$m = ${px(margin)}; $r = ${px(14)}; $pad = ${px(10)}; $icon = ${px(34)}; $gap = ${px(10)}`,
     `$titleTop = ${px(10)}; $titleH = ${px(17)}; $bodyTop = ${px(28)}; $bottomPad = ${px(5)}`,
     fitHeight
@@ -435,14 +446,17 @@ export function powershellBannerScript(options) {
     soft('$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)'),
     '$body.Left = $title.Left; $body.Top = $bodyTop; $body.Width = $title.Width',
     '$form.Controls.Add($body)',
+    // 自适应宽度：卡片宽度贴着「标题 / 正文」里更长的那条，长度不再固定 360 留一截空白。
+    // NoPadding 很关键：默认测量值含文本边框的额外内边距，会让卡片凭空长出几像素。
+    soft('$flagsS = [System.Windows.Forms.TextFormatFlags]::SingleLine -bor [System.Windows.Forms.TextFormatFlags]::NoPadding; $tw = [System.Windows.Forms.TextRenderer]::MeasureText($title.Text, $title.Font, (New-Object System.Drawing.Size(10000, 1000)), $flagsS); $bw = [System.Windows.Forms.TextRenderer]::MeasureText($body.Text, $body.Font, (New-Object System.Drawing.Size(10000, 1000)), $flagsS); $needW = [Math]::Max($tw.Width, $bw.Width) + $title.Left + $pad; if ($needW -gt 0 -and $needW -lt $W) { $W = [Math]::Max($needW, $minW) }'),
+    '$title.Width = $W - $title.Left - $pad; $body.Width = $title.Width',
     // 自适应高度：量出正文真实行高再定卡片高度（单行不留白，两行也不会被裁）。
-    // NoPadding 很关键：默认测量值含文本边框的额外内边距，会让卡片凭空高几像素。
     ...(fitHeight ? [
       soft('$flags = [System.Windows.Forms.TextFormatFlags]::WordBreak -bor [System.Windows.Forms.TextFormatFlags]::NoPadding; $measured = [System.Windows.Forms.TextRenderer]::MeasureText($body.Text, $body.Font, (New-Object System.Drawing.Size($body.Width, 1000)), $flags); if ($measured.Height -gt 0) { $bodyH = [int]$measured.Height }'),
       '$H = $bodyTop + $bodyH + $bottomPad',
     ] : []),
-    // 定稿：卡片高度、图标垂直居中、贴角位置都按最终高度算
-    '$body.Height = $bodyH; $form.Height = $H',
+    // 定稿：卡片宽高、图标垂直居中、贴角位置都按最终尺寸算
+    '$body.Height = $bodyH; $form.Width = $W; $form.Height = $H',
     '$pic.Top = [int][Math]::Round(($H - $icon) / 2)',
     `$form.Left = ${leftExpr}; $form.Top = ${topExpr}`,
     // 14px 圆角 + 1px 描边：通知卡片的形状（失败只丢外观）
@@ -1314,6 +1328,7 @@ export function apply(ctx, config = {}) {
             iconPath,
             position: cfg.bannerPosition,
             width: cfg.bannerWidth,
+            minWidth: cfg.bannerMinWidth,
             height: cfg.bannerHeight,
             durationMs: cfg.bannerDurationMs,
             openUrl: cfg.openUrl,

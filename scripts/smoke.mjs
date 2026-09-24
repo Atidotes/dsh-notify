@@ -684,7 +684,9 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     // macOS 观感：DPI 感知 + 自己缩放（否则缩放屏上整窗被位图放大，就是「太大」）
     ['SetProcessDPIAware', 'DPI 感知（缩放屏上不再位图放大）'],
     ["AutoScaleMode = 'None'", '禁止 WinForms 二次缩放'],
-    ['Round(360 * $scale)', '宽度基准 360 缩放'],
+    ['Round(360 * $scale); $minW = [int][Math]::Round(240 * $scale)', '宽度上限 360 / 下限 240'],
+    ['$needW = [Math]::Max($tw.Width, $bw.Width)', '宽度贴着标题/正文里更长的那条收窄（不再固定留白）'],
+    ['$form.Width = $W; $form.Height = $H', '宽高都在定稿阶段一次算清'],
     ['Round(34 * $scale)', '图标 34×34'],
     ['$bottomPad = [int][Math]::Round(5 * $scale)', '底部只留 5px（正文下面不再空一大块）'],
     ['$H = $bodyTop + $bodyH + $bottomPad', '高度 = 标题+正文+5，按内容自适应'],
@@ -724,8 +726,8 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
   const fixedScript = captured
     .find((argv) => String(argv[0]).includes('powershell'))
     ?.find((part) => String(part).includes('ShowDialog')) ?? ''
-  if (fixedScript.includes('Round(72 * $scale)') && !fixedScript.includes('MeasureText')) {
-    ok('bannerHeight > 0 时走固定高度（自适应只作用于默认值 0）')
+  if (fixedScript.includes('Round(72 * $scale)') && !fixedScript.includes('$H = $bodyTop + $bodyH + $bottomPad')) {
+    ok('bannerHeight > 0 时走固定高度（高度自适应只作用于默认值 0）')
   } else {
     bad('显式 bannerHeight 没有走固定高度')
   }
