@@ -46,6 +46,7 @@ window.__ModuleLoader__.load({
       '.dsn-cfg-field > label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary, inherit); }',
       '.dsn-cfg-field > label.dsn-cfg-switch { font-size: 13px; color: var(--dsw-alias-label-primary, inherit); cursor: pointer; }',
       '.dsn-cfg-field input[type="text"], .dsn-cfg-field input[type="number"], .dsn-cfg-field select { box-sizing: border-box; width: 100%; height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3)); background: var(--dsw-alias-bg-layer-2, transparent); color: inherit; font: inherit; font-size: 12px; }',
+      '.dsn-cfg-number { display: block; }',
       '.dsn-cfg-selectwrap { position: relative; display: block; }',
       ".dsn-cfg-selectwrap::after { content: ''; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; margin-top: -4px; border-right: 1.5px solid var(--dsw-alias-label-tertiary, rgba(127,127,127,.95)); border-bottom: 1.5px solid var(--dsw-alias-label-tertiary, rgba(127,127,127,.95)); transform: rotate(45deg); pointer-events: none; }",
       '.dsn-cfg-select { appearance: none; -webkit-appearance: none; -moz-appearance: none; padding-right: 30px; cursor: pointer; }',
@@ -143,6 +144,41 @@ window.__ModuleLoader__.load({
       if (store.hint === next) return
       store.hint = next
       emit()
+    }
+
+    /** 诊断缓存的存活时间：期间重复挂载（切页/重挂插件）不再打一次 /feed。 */
+    const DIAG_CACHE_TTL = 60_000
+    const DIAG_CACHE_KEY = 'dsh-notify/diag-cache'
+
+    /**
+     * 缓存只放"慢变"的部分：宿主平台与文案口径（同一台机器上不会变）。
+     * `backend` 会变（通道探测/掉线），所以**不缓存** —— 它靠 SSE 的状态广播或首个轮询更新，
+     * 免得缓存里的旧值把"该用浏览器兜底"判断带偏。
+     */
+    function readDiagCache() {
+      try {
+        const raw = globalThis.sessionStorage?.getItem(DIAG_CACHE_KEY)
+        if (typeof raw !== 'string' || raw === '') return undefined
+        const parsed = JSON.parse(raw)
+        if (parsed === null || typeof parsed !== 'object') return undefined
+        if (typeof parsed.at !== 'number' || Date.now() - parsed.at > DIAG_CACHE_TTL) return undefined
+        return parsed
+      } catch {
+        // 隐私模式 / 存储被禁用 / 内容被改坏：当作没有缓存
+        return undefined
+      }
+    }
+
+    function writeDiagCache(diag) {
+      try {
+        globalThis.sessionStorage?.setItem(DIAG_CACHE_KEY, JSON.stringify({
+          at: Date.now(),
+          platform: diag.platform,
+          copy: diag.copy,
+        }))
+      } catch {
+        // 写不进去就算了，只是下次还要多取一次
+      }
     }
 
     /** 提示条被手动关掉过就记一笔（localStorage；不可用时静默）。 */
@@ -408,7 +444,14 @@ window.__ModuleLoader__.load({
 
       // SSE 长连接本身不返回 diag：页面用 SSE 时也先取一次，配置卡才能知道宿主平台。
       const controller = typeof AbortController === 'function' ? new AbortController() : undefined
+      const cached = readDiagCache()
+      if (cached !== undefined) {
+        // 平台/文案口径直接用缓存，省掉一次同源 GET；backend 仍由 SSE 状态或首个轮询刷新
+        setHostPlatform(cached.platform)
+        if (cached.copy && typeof cached.copy === 'object') store.copy = cached.copy
+      }
       void (async () => {
+        if (cached !== undefined) return
         try {
           const response = await fetch(FEED_PATH, {
             headers: { accept: 'application/json' },
@@ -422,6 +465,7 @@ window.__ModuleLoader__.load({
             if (typeof data.diag.backend === 'string') store.hostBackend = data.diag.backend
             if (data.diag.copy && typeof data.diag.copy === 'object') store.copy = data.diag.copy
             setHostPlatform(data.diag.platform)
+            writeDiagCache(data.diag)
             updateHint()
           }
         } catch {
@@ -547,26 +591,32 @@ window.__ModuleLoader__.load({
      * 客户端先校验：改到超范围当场标红，而不是等宿主整批拒绝、只回一句"保存失败"。
      */
     const NUMBER_LIMITS = {
-      minRunMs: { min: 0, max: 86_400_000, step: 500 },
-      remindEveryMs: { min: 0, max: 86_400_000, step: 1_000 },
-      maxReminders: { min: 0, max: 1_000, step: 1 },
-      snippetChars: { min: 0, max: 120, step: 1 },
-      bannerWidth: { min: 160, max: 1_200, step: 10 },
-      bannerMinWidth: { min: 120, max: 1_200, step: 10 },
-      bannerRadius: { min: 0, max: 200, step: 1 },
-      bannerHeight: { min: 0, max: 400, step: 1 },
-      bannerDurationMs: { min: 0, max: 60_000, step: 500 },
+      // integer: true 的字段宿主 schema 带 .step(1) —— 计数类只能是整数
+      // （提醒次数、提问片段字数）；毫秒/像素类允许小数。
+      minRunMs: { min: 0, max: 86_400_000 },
+      remindEveryMs: { min: 0, max: 86_400_000 },
+      maxReminders: { min: 0, max: 1_000, integer: true },
+      snippetChars: { min: 0, max: 120, integer: true },
+      bannerWidth: { min: 160, max: 1_200 },
+      bannerMinWidth: { min: 120, max: 1_200 },
+      bannerRadius: { min: 0, max: 200 },
+      bannerHeight: { min: 0, max: 400 },
+      bannerDurationMs: { min: 0, max: 60_000 },
     }
 
     /** 校验一个草稿值；返回错误文案的词典键，undefined 表示合法。 */
     function invalidReason(key, kind, value) {
       if (kind !== 'number') return undefined
-      if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) return 'invalidNumber'
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'invalidNumber'
       const limit = NUMBER_LIMITS[key]
       if (limit === undefined) return undefined
+      if (limit.integer === true && !Number.isInteger(value)) return 'invalidInteger'
       if (value < limit.min || value > limit.max) return 'invalidRange'
       return undefined
     }
+
+    /** 数值输入允许的中间态（`-`、`12.`、`.5` 都能继续敲，不再吞按键）。 */
+    const NUMBER_TEXT = /^[+-]?(\d+\.?\d*|\.\d+)$/
 
     /** 当前平台上可见的字段。 */
     function fieldsForPlatform(platform) {
@@ -639,7 +689,8 @@ window.__ModuleLoader__.load({
       'save': '保存', 'saving': '保存中…', 'discard': '放弃修改',
       'reset': '重置', 'overridden': '已自定义',
       'saveFailed': '保存失败，请重试', 'readOnly': '当前连接不可写', 'loading': '正在读取配置…',
-      'invalidNumber': '请填整数', 'invalidRange': '超出允许范围', 'invalidFields': '有字段不合法，先改好再保存',
+      'invalidNumber': '请填数字', 'invalidInteger': '这里只能填整数', 'invalidRange': '超出允许范围',
+      'invalidFields': '有字段不合法，先改好再保存',
       'unavailableRemote': '配置只能在通过本机地址（127.0.0.1 / localhost）打开的页面里修改 —— 当前页面不是本机地址。',
       'unavailableHost': '暂时读不到配置：插件宿主可能还在跑旧模块，完全重启 DSH 后刷新页面再试。',
       'dirty': '有未保存的修改',
@@ -708,7 +759,8 @@ window.__ModuleLoader__.load({
       'save': 'Save', 'saving': 'Saving…', 'discard': 'Discard',
       'reset': 'Reset', 'overridden': 'Customized',
       'saveFailed': 'Save failed, please retry', 'readOnly': 'This connection is read-only', 'loading': 'Loading configuration…',
-      'invalidNumber': 'Enter a whole number', 'invalidRange': 'Out of the allowed range', 'invalidFields': 'Some fields are invalid — fix them before saving',
+      'invalidNumber': 'Enter a number', 'invalidInteger': 'Whole numbers only here', 'invalidRange': 'Out of the allowed range',
+      'invalidFields': 'Some fields are invalid — fix them before saving',
       'unavailableRemote': 'Configuration can only be edited from a page opened on this machine (127.0.0.1 / localhost).',
       'unavailableHost': 'Configuration is not readable yet: the plugin host may still run the old module — restart DSH and refresh.',
       'dirty': 'Unsaved changes',
@@ -754,6 +806,54 @@ window.__ModuleLoader__.load({
       ))
     }
 
+    /**
+     * 数值输入框：type=text（原生数字框的上下箭头样式难统一），但**不吞按键** ——
+     * 本地保留用户正在输入的原始文本，`-`、`12.`、`.5` 这种中间态都能继续敲；
+     * 能解析成数字就同步进草稿，解析不了就在字段下方提示，失焦时回到已提交的值。
+     */
+    function numberControl(props, inputId, value, disabled, invalid) {
+      const { t } = props
+      const limit = props.limit ?? {}
+      const [text, setText] = React.useState(null)
+      const [parseError, setParseError] = React.useState(undefined)
+      const shown = text !== null ? text : (value === undefined || value === null ? '' : String(value))
+      const message = parseError !== undefined
+        ? t(parseError)
+        : invalid !== undefined
+          ? `${t(invalid)}${invalid === 'invalidRange' ? `（${limit.min} – ${limit.max}）` : ''}`
+          : undefined
+      return h('div', { className: 'dsn-cfg-number' },
+        h('input', {
+          id: inputId, type: 'text', inputMode: 'decimal', autoComplete: 'off', spellCheck: false,
+          value: shown, disabled,
+          'aria-invalid': message !== undefined ? 'true' : undefined,
+          onChange: (event) => {
+            const raw = event.target.value
+            setText(raw)
+            const trimmed = raw.trim()
+            // 清空 = 回到默认层（排一个 unset op，跟随保存/放弃，而不是立刻写宿主）
+            if (trimmed === '') {
+              setParseError(undefined)
+              props.onReset()
+              return
+            }
+            if (!NUMBER_TEXT.test(trimmed)) {
+              setParseError('invalidNumber')
+              return
+            }
+            setParseError(undefined)
+            props.onEdit(Number(trimmed))
+          },
+          onBlur: () => {
+            // 失焦后回到"跟随外部值"：不合法的文本丢弃，合法的保留（草稿里已经有它）
+            setText(null)
+            setParseError(undefined)
+          },
+        }),
+        message === undefined ? null : h('span', { className: 'dsn-cfg-error' }, message),
+      )
+    }
+
     /** 字段控件：布尔用开关、枚举用下拉、数字/文本用输入框；带 id/htmlFor 与字段级错误。 */
     function Field(props) {
       const { spec, value, disabled, overridden, t, invalid } = props
@@ -775,19 +875,7 @@ window.__ModuleLoader__.load({
           }, (props.options ?? spec.values ?? []).map((option) => h('option', { key: option, value: option },
             t(`v.${spec.key}.${option}`)))))
       } else if (spec.kind === 'number') {
-        // 普通文本框（type=number 会带原生上下箭头，样式难统一）；边界见 NUMBER_LIMITS
-        const limit = props.limit ?? {}
-        control = h('input', {
-          id: inputId, type: 'text', inputMode: 'numeric', autoComplete: 'off', spellCheck: false,
-          value: value === undefined || value === null ? '' : String(value), disabled,
-          'aria-invalid': invalid !== undefined ? 'true' : undefined,
-          onChange: (event) => {
-            const text = event.target.value.trim()
-            // 清空 = 回到默认层（排一个 unset op，跟随保存/放弃，而不是立刻写宿主）
-            if (text === '') props.onReset()
-            else if (/^\d+$/.test(text)) props.onEdit(Number(text))
-          },
-        })
+        control = numberControl(props, inputId, value, disabled, invalid)
       } else {
         control = h('input', {
           id: inputId, type: 'text', autoComplete: 'off', spellCheck: false,
@@ -808,9 +896,11 @@ window.__ModuleLoader__.load({
           : h('label', { htmlFor: inputId }, h('span', null, label),
               overridden ? h('span', { className: 'dsn-cfg-badge' }, t('overridden')) : null),
         spec.kind === 'boolean' ? null : control,
-        invalid !== undefined
-          ? h('span', { className: 'dsn-cfg-error' }, t(invalid))
-          : (hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint)),
+        spec.kind === 'number'
+          ? (hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint))
+          : (invalid !== undefined
+              ? h('span', { className: 'dsn-cfg-error' }, t(invalid))
+              : (hint === `h.${spec.key}` ? null : h('span', { className: 'dsn-cfg-hint' }, hint))),
         overridden ? reset : null,
       )
     }
@@ -1009,7 +1099,8 @@ window.__ModuleLoader__.load({
     const internals = {
       CONFIG_FIELDS, CONFIG_GROUPS, CONFIG_ZH, CONFIG_EN, NUMBER_LIMITS,
       matchesPlatform, fieldsForPlatform, optionsFor, BACKEND_BY_PLATFORM,
-      draftValue, draftOps, invalidReason,
+      draftValue, draftOps, invalidReason, NUMBER_TEXT,
+      readDiagCache, writeDiagCache, DIAG_CACHE_TTL,
     }
 
     return { inject: [], apply, internals }

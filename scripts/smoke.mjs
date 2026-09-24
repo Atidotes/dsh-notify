@@ -973,7 +973,7 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
       'unavailableRemote', 'unavailableHost', 'readOnly', 'loading', 'dirty',
       'platformUnknown', 'showAll', 'h.showAll',
       // 字段级校验错误（invalidReason 返回的键，动态引用）
-      'invalidNumber', 'invalidRange', 'invalidFields',
+      'invalidNumber', 'invalidInteger', 'invalidRange', 'invalidFields',
     ]
     for (const [name, dict] of [['zh', card.CONFIG_ZH], ['en', card.CONFIG_EN]]) {
       const gaps = needed.filter((key) => typeof dict[key] !== 'string' || dict[key] === '')
@@ -1080,6 +1080,63 @@ console.log(`\nhost 半冒烟测试${REAL ? '（真实弹出系统通知）' : '
       ok('字段级校验：超范围标红、合法值与布尔字段放行')
     } else {
       bad('字段级校验不对')
+    }
+
+    // 客户端"允许什么"必须和宿主 schema 完全一致：逐字段拿小数 / 负数 / 边界值去问两边
+    const accepted = (key, value) => {
+      try {
+        Config({ [key]: value })
+        return true
+      } catch {
+        return false
+      }
+    }
+    const mismatch = []
+    for (const [key, limit] of Object.entries(card.NUMBER_LIMITS)) {
+      const samples = [
+        limit.min - 1,                     // 低于下限
+        limit.max + 1,                     // 高于上限
+        limit.min,                         // 边界
+        (limit.min + limit.max) / 2 + 0.5, // 非整数（落在区间内）
+      ]
+      for (const sample of samples) {
+        const hostOk = accepted(key, sample)
+        const clientOk = card.invalidReason(key, 'number', sample) === undefined
+        if (hostOk !== clientOk) mismatch.push(`${key}=${sample}(宿主 ${hostOk} / 客户端 ${clientOk})`)
+      }
+    }
+    if (mismatch.length === 0) ok('数值字段的接受范围与宿主 schema 完全一致（含小数 / 越界 / 边界）')
+    else bad(`数值校验与 schema 不一致：${mismatch.slice(0, 4).join(', ')}`)
+    // 诊断缓存：重复挂载不再打 /feed；只缓存平台/文案，过期或损坏自动失效
+    {
+      const memory = new Map()
+      globalThis.sessionStorage = {
+        getItem: (key) => (memory.has(key) ? memory.get(key) : null),
+        setItem: (key, value) => { memory.set(key, String(value)) },
+        removeItem: (key) => { memory.delete(key) },
+      }
+      card.writeDiagCache({ platform: 'win32', copy: { titleFrom: 'app' }, backend: 'banner' })
+      const cached = card.readDiagCache()
+      if (cached?.platform === 'win32' && cached.copy?.titleFrom === 'app' && cached.backend === undefined) {
+        ok('诊断缓存只记平台/文案（backend 不缓存，避免把兜底判断带偏）')
+      } else {
+        bad(`诊断缓存内容不对：${JSON.stringify(cached)}`)
+      }
+      memory.set('dsh-notify/diag-cache', JSON.stringify({ at: Date.now() - card.DIAG_CACHE_TTL - 1, platform: 'linux' }))
+      if (card.readDiagCache() === undefined) ok('诊断缓存过期后失效（会重新取一次）')
+      else bad('过期缓存没有失效')
+      memory.set('dsh-notify/diag-cache', '{坏掉的 JSON')
+      if (card.readDiagCache() === undefined) ok('诊断缓存损坏时静默失效')
+      else bad('损坏缓存没有失效')
+      delete globalThis.sessionStorage
+    }
+
+    if (card.invalidReason('bannerWidth', 'number', 350.5) === undefined
+      && card.invalidReason('maxReminders', 'number', 1.5) === 'invalidInteger'
+      && card.invalidReason('bannerWidth', 'number', -1) === 'invalidRange') {
+      ok('像素/毫秒可填小数，计数只收整数，负数按范围拒绝')
+    } else {
+      bad('小数 / 整数 / 负数 的判定不对')
     }
 
     // ⑥ 真的注册到 plugins.bundle.config，key 用包名

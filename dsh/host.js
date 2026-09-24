@@ -174,8 +174,10 @@ export const Config = Schema.object({
   question: Schema.boolean().default(true).volatile(),
   done: Schema.boolean().default(true).volatile(),
   // ② 触发时机 / 提醒节奏
-  minRunMs: Schema.number().min(0).max(86_400_000).step(500).default(3_000).volatile(),
-  remindEveryMs: Schema.number().min(0).max(86_400_000).step(1_000).default(30_000).volatile(),
+  // 毫秒/像素这类量允许小数（.step() 会要求整数倍，所以这里不写；计数类仍然 .step(1)）
+  minRunMs: Schema.number().min(0).max(86_400_000).default(3_000).volatile(),
+  remindEveryMs: Schema.number().min(0).max(86_400_000).default(30_000).volatile(),
+  /** 计数：必须是整数。 */
   maxReminders: Schema.number().min(0).max(1_000).step(1).default(10).volatile(),
   // ③ 提醒类型：Windows 自绘弹出窗 / 系统通知；以及通道选择
   windowsStyle: Schema.union(['banner', 'toast']).default('banner').volatile(),
@@ -188,14 +190,15 @@ export const Config = Schema.object({
   fallbackName: Schema.string().default('DeepSeek Harness').volatile(),
   subtitle: Schema.string().default('').volatile(),
   sound: Schema.string().default('Glass').volatile(),
+  /** 计数：必须是整数。 */
   snippetChars: Schema.number().min(0).max(120).step(1).default(24).volatile(),
   // ⑤ Windows 弹出窗外观（长度 / 圆角 / 高度 / 位置 / 停留时长）
   bannerPosition: Schema.union(['topright', 'topleft', 'bottomright', 'bottomleft']).default('topright').volatile(),
-  bannerWidth: Schema.number().min(160).max(1_200).step(10).default(350).volatile(),
-  bannerMinWidth: Schema.number().min(120).max(1_200).step(10).default(310).volatile(),
-  bannerRadius: Schema.number().min(0).max(200).step(1).default(40).volatile(),
-  bannerHeight: Schema.number().min(0).max(400).step(1).default(0).volatile(),
-  bannerDurationMs: Schema.number().min(0).max(60_000).step(500).default(8_000).volatile(),
+  bannerWidth: Schema.number().min(160).max(1_200).default(350).volatile(),
+  bannerMinWidth: Schema.number().min(120).max(1_200).default(310).volatile(),
+  bannerRadius: Schema.number().min(0).max(200).default(40).volatile(),
+  bannerHeight: Schema.number().min(0).max(400).default(0).volatile(),
+  bannerDurationMs: Schema.number().min(0).max(60_000).default(8_000).volatile(),
   // Linux：notify-send 的紧急级别（其余平台不显示）
   linuxUrgentUrgency: Schema.union(['critical', 'normal', 'low']).default('critical').volatile(),
 })

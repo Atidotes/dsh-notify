@@ -203,7 +203,8 @@ if (clientSource.includes('CONFIG_ZH') && clientSource.includes('CONFIG_EN')) {
 }
 for (const [needle, label] of [
   ['border: solid #fff', '复选框自绘白色勾（不用系统绘制的黑色对勾）'],
-  ["type: 'text', inputMode: 'numeric'", '数字字段用普通文本框（不要原生数字框箭头）'],
+  ["type: 'text', inputMode: 'decimal'", '数字字段用普通文本框（不要原生数字框箭头）'],
+  ['NUMBER_TEXT', '数字框保留输入中间态（-、12.、.5 不被吞）'],
   ['.dsn-cfg-selectwrap', '下拉自绘箭头（去掉原生外观）'],
   ['appearance: none; -webkit-appearance: none; -moz-appearance: none', '下拉去掉原生样式'],
   ["key: 'approval'", '开关字段'], ["key: 'minRunMs'", '触发时机字段'],
