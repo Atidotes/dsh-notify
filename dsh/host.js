@@ -408,11 +408,11 @@ export function powershellBannerScript(options) {
     // **底部只留 5**（正文下面那块空白是「留白太多」的来源）
     `$W = ${px(width)}; $minW = ${px(minWidth)}`,
     `$m = ${px(margin)}; $r = ${px(radius)}; $pad = ${px(10)}; $rightPad = ${px(16)}; $icon = ${px(38)}; $gap = ${px(10)}`,
-    `$titleTop = ${px(14)}; $titleH = ${px(17)}; $bodyTop = ${px(34)}; $bottomPad = ${px(12)}`,
+    `$titleTop = ${px(12)}; $titleH = ${px(17)}; $bodyTop = ${px(31)}; $bottomPad = ${px(9)}`,
     fitHeight
       // 自适应：先按「单行正文」估高，后面量出真实行数再定稿
       ? `$bodyH = ${px(16)}; $H = $bodyTop + $bodyH + $bottomPad`
-      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - ${px(12)}`,
+      : `$H = ${px(fixedHeight)}; $bodyH = $H - $bodyTop - ${px(9)}`,
     // 浅色/深色跟随 Windows 应用主题（macOS 通知也跟随系统外观）
     '$light = 1',
     soft("$light = (Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme"),

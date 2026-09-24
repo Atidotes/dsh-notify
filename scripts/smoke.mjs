@@ -691,7 +691,7 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     ['Round(38 * $scale)', '图标 38×38'],
     ['Round(40 * $scale)', '圆角 40px（夹到高度一半 = 胶囊）'],
     ['[Math]::Floor($H / 2)', '圆角夹在卡片高度一半以内（矮卡片不会画歪）'],
-    ['$bottomPad = [int][Math]::Round(12 * $scale)', '底部留白 12px（与顶部对称，圆角才有空间取满）'],
+    ['$bottomPad = [int][Math]::Round(9 * $scale)', '底部留白 9px（收紧但不影响圆角取满）'],
     ['$H = $bodyTop + $bodyH + $bottomPad', '高度 = 标题+正文+底部留白，按内容自适应'],
     ['MeasureText', '用正文实际行高定卡片高度（两行也不会被裁）'],
     ['TextFormatFlags]::NoPadding', '测量用 NoPadding（默认测量含边框留白，会凭空高出几像素）'],
