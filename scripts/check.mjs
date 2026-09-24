@@ -61,6 +61,15 @@ if (manifest !== undefined) {
     }
   }
   if (failures.length === 0) ok(`name=${name} version=${manifest.version}`)
+  // 正式版尤其容易漏：版本号必须能在更新日志里找到对应条目
+  const changelog = join(root, 'CHANGELOG.md')
+  if (!existsSync(changelog)) {
+    bad('缺 CHANGELOG.md（发版必须留记录）')
+  } else if (readFileSync(changelog, 'utf8').includes(`## ${manifest.version}`)) {
+    ok(`CHANGELOG.md 里有当前版本条目（${manifest.version}）`)
+  } else {
+    bad(`CHANGELOG.md 里没有版本 ${String(manifest.version)} 的条目`)
+  }
 }
 
 // --- host / browser 两半 ---------------------------------------------------

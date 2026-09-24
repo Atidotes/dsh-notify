@@ -224,6 +224,17 @@ dsh plugin --profile web add "$PWD"
 > **改了代码要让运行中的 DSH 生效，必须重启一次 app。**
 > 已安装插件的 JS 模块在 host 进程里是按代际缓存的：单文件改动、禁用再启用、甚至移除后重装，都只会复用旧模块；`cordis.yml` 这类配置是热更新的，但模块不是。重启后浏览器再刷新一次页面（拿新的 client 半）。
 
+## 版本与发布
+
+- 当前版本 **1.0.0**（首个正式版）；版本号写在 `package.json`，每个版本对应一个 git tag
+  （`v1.0.0` 这种形式），逐版本的改动记在 [CHANGELOG.md](./CHANGELOG.md)。
+- 装最新（跟 `main` 走，改动推上去即可拿到）：
+  `dsh plugin --profile web add github:Atidotes/dsh-notify`
+- 装**指定版本**（可复现，建议正式使用）：
+  `dsh plugin --profile web add github:Atidotes/dsh-notify#v1.0.0`
+- 运行环境：Node ≥ 22，DSH ≥ 0.1.7（`engines`；需要 harness 的 volatile 配置 schema 与
+  `plugins.bundle.config` 插槽）。
+
 ## 架构
 
 ```
@@ -430,7 +441,7 @@ curl -s 'http://127.0.0.1:3080/dsh-notify/feed?since=0'
 ## 自检与验证
 
 ```bash
-npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（75 条）
+npm run check                    # manifest / 语法 / patch / 图标素材 / 抢位 / SSE / 配置卡断言（76 条）
 npm run smoke                    # host 半逻辑自测（111 条断言：真机 bug 回归 + 跨平台/平台分支）
 npm run preview                  # 打印三种通知的实际文案（改文案时先看这个）
 npm run windows-check            # 打印 Windows 上可直接粘贴的两段自检脚本（弹出窗 / Toast）

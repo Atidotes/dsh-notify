@@ -1,6 +1,6 @@
 {
   "name": "dsh-notify",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "DeepSeek Harness 插件：需要审批、需要你回答、或者一轮任务跑完时，弹出带 DeepSeek 官方彩色图标的系统通知（macOS / Windows / Linux）；未处理的审批会按间隔重复提醒，页面里不显示任何卡片。",
   "icon": "./icon.svg",
   "type": "module",
@@ -27,11 +27,12 @@
     "locale/*.json",
     "scripts/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22",
-    "dsh": ">=0.2.0"
+    "dsh": ">=0.1.7"
   },
   "keywords": [
     "deepseek-harness",
