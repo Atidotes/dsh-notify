@@ -688,6 +688,8 @@ rmSync(resolve(root, '.smoke-tmp'), { recursive: true, force: true })
     ['$needW = [Math]::Max($tw.Width, $bw.Width)', '宽度贴着标题/正文里更长的那条收窄（不再固定留白）'],
     ['$form.Width = $W; $form.Height = $H', '宽高都在定稿阶段一次算清'],
     ['Round(34 * $scale)', '图标 34×34'],
+    ['Round(18 * $scale)', '圆角 18px（更圆）'],
+    ['[Math]::Floor($H / 2)', '圆角夹在卡片高度一半以内（矮卡片不会画歪）'],
     ['$bottomPad = [int][Math]::Round(5 * $scale)', '底部只留 5px（正文下面不再空一大块）'],
     ['$H = $bodyTop + $bodyH + $bottomPad', '高度 = 标题+正文+5，按内容自适应'],
     ['MeasureText', '用正文实际行高定卡片高度（两行也不会被裁）'],

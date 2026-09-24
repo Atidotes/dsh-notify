@@ -81,6 +81,7 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
   "bannerPosition": "topright",
   "bannerWidth": 360,
   "bannerMinWidth": 240,
+  "bannerRadius": 18,
   "bannerDurationMs": 8000
 }
 ```
@@ -91,6 +92,7 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 | `bannerPosition` | `topright`（默认）/ `topleft` / `bottomright` / `bottomleft` | 自绘弹出窗的位置 |
 | `bannerWidth` | `360` | 宽度**上限**（96 DPI 下的逻辑像素）：卡片会按标题/正文自己收窄，不留一截空白 |
 | `bannerMinWidth` | `240` | 宽度**下限**；把上下限设成同一个值 = 钉死宽度 |
+| `bannerRadius` | `18` | 圆角半径（越大越圆）；自动限制在卡片高度的一半以内 |
 | `bannerHeight` | `0`（= 自适应） | 高度：**默认按正文行数自适应**（单行 ≈ 49、两行 ≈ 64），不留白；填正数则固定高度 |
 | `bannerDurationMs` | `8000` | 自动关闭毫秒数；`0` = 一直显示到点击关闭 |
 
@@ -106,7 +108,7 @@ SnoreToast / node-notifier 也都没有位置参数。想要**右上角**，只�
 （默认 240–360 之间；短消息 ≈ **240**，长提问最多 360 后换行）、**高度 = 标题 + 正文 +
 底部 5px**（用 `TextRenderer.MeasureText` 量正文真实行高，单行 ≈ **49**、两行 ≈ **64**；
 测量带 `NoPadding`，否则默认测量值里的边框留白会让卡片凭空高几像素）、**34×34** 官方
-彩色图标（垂直居中）、**13px 半粗标题 + 12px 正文**、左右内边距 10px、**14px 圆角**、
+彩色图标（垂直居中）、**13px 半粗标题 + 12px 正文**、左右内边距 10px、**18px 圆角**、
 1px 描边、浅色卡片（**深色主题下自动变深色** —— 跟随 Windows 的「应用模式」设置）。
 
 > 卡片实际几何会写进 stderr（形如 `dsh-notify 卡片 360x49（正文 16px / scale 1）`），
@@ -308,6 +310,7 @@ config.command 自定义 argv（PowerShell toast / notify-send …）
 | `bannerPosition` | `topright` | banner 位置：`topright` / `topleft` / `bottomright` / `bottomleft` |
 | `bannerWidth` | `360` | banner 宽度上限（逻辑像素） |
 | `bannerMinWidth` | `240` | banner 宽度下限 |
+| `bannerRadius` | `18` | banner 圆角半径 |
 | `bannerHeight` | `0` | banner 高度：`0` = 按正文行数自适应（推荐）；正数 = 固定高度 |
 | `bannerDurationMs` | `8000` | banner 自动关闭毫秒数；`0` = 一直显示到手动关闭 |
 | `snoretoastCommand` | `SnoreToast.exe` | Windows：SnoreToast 的命令名或绝对路径 |

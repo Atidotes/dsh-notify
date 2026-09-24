@@ -117,6 +117,8 @@ const DEFAULT_CONFIG = {
   bannerWidth: 360,
   /** banner 模式的宽度**下限**：想钉死宽度就把 `bannerMinWidth` 和 `bannerWidth` 设成同一个值。 */
   bannerMinWidth: 240,
+  /** 卡片圆角半径（96 DPI 下的逻辑像素）；会被自动限制在「卡片高度的一半」以内。 */
+  bannerRadius: 18,
   /**
    * banner 模式的高度（96 DPI 下的逻辑像素）：
    *   0（默认）= 按正文实际行数**自适应**（单行 ≈ 54、两行 ≈ 70），不留白
@@ -336,7 +338,7 @@ export function powershellToastScript(title, body, appId, iconPath) {
  *
  * 外观对齐 macOS 通知横幅，但**卡片贴着内容走**：宽度按标题/正文里更长的那条量出来
  * （默认 240–360 之间，不再固定 360 留一截空白），高度 = 标题 + 正文实际行高 + 5px；
- * 34×34 应用图标、13px 半粗标题 + 12px 正文、14px 圆角浅色卡片、跟随系统浅色/深色外观。
+ * 34×34 应用图标、13px 半粗标题 + 12px 正文、18px 圆角浅色卡片、跟随系统浅色/深色外观。
  *
  * **DPI**：不调 `SetProcessDPIAware` 时，Windows 在 150% / 200% 缩放的屏幕上会把整个
  * 窗口当位图放大 —— 又大又糊（这是「弹出窗太大」的真正原因）。所以脚本先声明 DPI
@@ -382,6 +384,8 @@ export function powershellBannerScript(options) {
    * 想钉死宽度就把 minWidth 和 width 设成同一个值。
    */
   const minWidth = Number.isFinite(options.minWidth) && options.minWidth > 0 ? Math.round(options.minWidth) : 240
+  /** 圆角半径：越大越圆；构建 Region 时会夹到「高度的一半」以内，避免矮卡片画歪。 */
+  const radius = Number.isFinite(options.radius) && options.radius > 0 ? Math.round(options.radius) : 18
   /**
    * 让一条**装饰性**语句失败时不至于整条通知消失。
    *
@@ -403,7 +407,7 @@ export function powershellBannerScript(options) {
     // 版式基准（96 DPI）：紧贴内容 —— 左右内边距 10、图标 34、标题 13px、正文 12px、
     // **底部只留 5**（正文下面那块空白是「留白太多」的来源）
     `$W = ${px(width)}; $minW = ${px(minWidth)}`,
-    `$m = ${px(margin)}; $r = ${px(14)}; $pad = ${px(10)}; $icon = ${px(34)}; $gap = ${px(10)}`,
+    `$m = ${px(margin)}; $r = ${px(radius)}; $pad = ${px(10)}; $icon = ${px(34)}; $gap = ${px(10)}`,
     `$titleTop = ${px(10)}; $titleH = ${px(17)}; $bodyTop = ${px(28)}; $bottomPad = ${px(5)}`,
     fitHeight
       // 自适应：先按「单行正文」估高，后面量出真实行数再定稿
@@ -460,6 +464,8 @@ export function powershellBannerScript(options) {
     '$pic.Top = [int][Math]::Round(($H - $icon) / 2)',
     `$form.Left = ${leftExpr}; $form.Top = ${topExpr}`,
     // 14px 圆角 + 1px 描边：通知卡片的形状（失败只丢外观）
+    // 圆角不能超过卡片高度的一半，否则四个 Arc 会互相重叠、边缘画歪
+    '$r = [Math]::Min($r, [int][Math]::Floor($H / 2))',
     soft('$path = New-Object System.Drawing.Drawing2D.GraphicsPath; $path.AddArc(0, 0, $r, $r, 180, 90); $path.AddArc($W - $r, 0, $r, $r, 270, 90); $path.AddArc($W - $r, $H - $r, $r, $r, 0, 90); $path.AddArc(0, $H - $r, $r, $r, 90, 90); $path.CloseFigure(); $form.Region = New-Object System.Drawing.Region($path)'),
     soft('$form.Add_Paint({ param($sender, $e) try { $pen = New-Object System.Drawing.Pen($lineColor, 1); $e.Graphics.SmoothingMode = "AntiAlias"; $e.Graphics.DrawPath($pen, $path); $pen.Dispose() } catch { } })'),
     click,
@@ -1329,6 +1335,7 @@ export function apply(ctx, config = {}) {
             position: cfg.bannerPosition,
             width: cfg.bannerWidth,
             minWidth: cfg.bannerMinWidth,
+            radius: cfg.bannerRadius,
             height: cfg.bannerHeight,
             durationMs: cfg.bannerDurationMs,
             openUrl: cfg.openUrl,
